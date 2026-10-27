@@ -63,7 +63,7 @@ scores the rest against your CV, tailors your CV and cover letter, and fills the
 | Python 3.12+ and [uv](https://docs.astral.sh/uv/) | `curl -LsSf https://astral.sh/uv/install.sh \| sh` (Windows: see the uv docs) |
 | [Node.js](https://nodejs.org) 18+ | runs the Playwright browser server (`npx`) |
 | Google Chrome | the browser Claude drives |
-| Microsoft Word **or** [LibreOffice](https://www.libreoffice.org) | optional, only for tailored CV PDFs |
+| Microsoft Word **or** [LibreOffice](https://www.libreoffice.org) | optional, only for tailored CV PDFs (cover letters need nothing extra) |
 
 ## Quick start
 
@@ -82,7 +82,8 @@ Then, inside Claude Code:
 
 ### What `/setup` asks you for
 
-- 📄 **Your CV as a PDF.** Drop it in `profile/`. Add the Word version too if you want tailored CVs.
+- 📄 **Your CV as a PDF.** Drop it in `profile/`. For tailored CVs also the Word file (.docx); see
+  [CVs and cover letters](#cvs-and-cover-letters).
 - 🌍 **Where you search.** Country, the city where you'd work on-site, remote preference (your country, your
   region, or worldwide), relocation.
 - 🎯 **The roles you want**, in your own words ("data analyst", "marketing assistant"), the levels, and job titles
@@ -96,6 +97,22 @@ Then, inside Claude Code:
   when a form needs them.
 
 Run `/setup` again any time to change something, or edit `profile/profile.yaml` directly.
+
+## CVs and cover letters
+
+| | What it needs | Without it |
+|---|---|---|
+| Tailored CV (`/tailor-cv`) | your CV as a Word file (.docx) with the same name as the PDF, in `profile/cv-source/` (`profile/cv.pdf` → `profile/cv-source/cv.docx`), plus Word or LibreOffice to turn it into a PDF | your plain CV PDF is sent |
+| Cover letter (`/apply`) | nothing extra: Claude writes one letter per job from your profile and the app makes the PDF | — |
+
+- **Both files from one CV:** in Word, File → Save As → PDF; in Google Docs, File → Download → PDF document and
+  File → Download → Microsoft Word (.docx). Save them as `profile/cv.pdf` and `profile/cv-source/cv.docx`.
+- **CV made in Canva or LaTeX?** It has no Word file: skip `/tailor-cv`, and your plain PDF is sent.
+- **Cover letters use only facts in `profile/profile.yaml`.** The more projects, skills and experience it lists,
+  the better the letters. A claim your profile doesn't back up is removed, or you're asked about it first.
+- **Linux:** install DejaVu or Liberation fonts so accented letters (ł, ő, ə) print correctly in letters.
+- `uv run jobhunt doctor` checks the Word file, the PDF converter and the font; `uv run jobhunt doctor --export-test`
+  also makes a test PDF with Word or LibreOffice.
 
 ## Gmail and LinkedIn alerts
 
@@ -118,7 +135,8 @@ What Claude does with the inbox:
 | `/linkedin-alerts` | imports every job LinkedIn emailed you since the last run |
 | Never | sends, deletes, archives, moves or labels anything, or changes settings |
 
-The inbox rules know English and Polish emails; Claude sorts emails in other languages itself.
+The inbox rules know emails in English, Polish, German, French, Spanish, Dutch, Italian and Portuguese; Claude sorts
+emails in other languages itself.
 
 ## Commands
 
@@ -152,8 +170,9 @@ The inbox rules know English and Polish emails; Claude sorts emails in other lan
 | Everywhere | LinkedIn public job search · LinkedIn alert emails · career sites of the companies in your `companies.yaml` |
 | Poland | Pracuj.pl · englishjobs.pl · for IT roles also JustJoin.it, No Fluff Jobs, Bulldogjob |
 
-`companies.yaml` starts empty. Add the companies you want to work for: tell Claude "add <company> to my watchlist" and
-it finds the career site and adds the entry (format at the top of the file).
+`companies.yaml` (created by `/setup`, never committed, so updates never touch it) starts empty. Add the companies
+you want to work for: tell Claude "add <company> to my watchlist" and it finds the career site, adds the entry
+(format at the top of the file) and checks it loads (`uv run jobhunt watchlist`).
 Adding a job board for your country is a small module in `jobhunt/sources/`; see [docs/how-it-works.md](docs/how-it-works.md).
 
 ## Good to know

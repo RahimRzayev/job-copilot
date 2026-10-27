@@ -155,3 +155,21 @@ def test_language_reasons_share_a_bucket():
     assert pipeline._bucket("German title") == "German"
     assert pipeline._bucket("other language required") == "other language required"
     assert pipeline._bucket("non-tech role") == "non-tech role"
+
+
+def test_new_watchlist_company_brings_all_its_open_jobs(tmp_path, monkeypatch):
+    old = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    board_job = _job(source="greenhouse", source_id="gh1", posted_at=old)
+    conn = connect(tmp_path / "t.db")
+    r = pipeline.Report()
+    pipeline.process(conn, None, [board_job], 24, 3, r)
+    assert r.added == 0 and "older than 168h" in r.filtered
+    conn = connect(tmp_path / "t2.db")
+    r = pipeline.Report()
+    pipeline.process(conn, None, [board_job], 24, 3, r, new_companies=frozenset({"Acme"}))
+    assert r.added == 1
+
+    # a company counts as new until one of its career-site jobs is stored
+    monkeypatch.setattr(pipeline, "_companies", lambda: [{"name": "Acme", "ats": "greenhouse", "slug": "acme"},
+                                                         {"name": "Globex", "ats": "workday", "slug": "g/wd3/x"}])
+    assert pipeline.new_companies(conn) == {"Globex"}

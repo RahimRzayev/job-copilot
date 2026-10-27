@@ -10,6 +10,7 @@ profile/*
 !profile/profile.example.yaml
 data/
 reports/
+companies.yaml
 
 # Claude Code: personal settings and local browser state
 .claude/settings.local.json

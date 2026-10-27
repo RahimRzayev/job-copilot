@@ -15,6 +15,7 @@ from . import settings
 from .db import ROOT, connect
 
 EXAMPLE = ROOT / "profile" / "profile.example.yaml"
+COMPANIES_EXAMPLE = ROOT / "companies.example.yaml"
 PLAYWRIGHT_ADD = "claude mcp add --scope project playwright -- npx @playwright/mcp@latest"
 
 
@@ -44,19 +45,24 @@ def _rel(path: Path, root: Path) -> str:
 
 
 def init(root: Path = ROOT) -> dict:
-    """Profile from the example (only when missing), data folders and the database. Safe to re-run."""
+    """Profile and watchlist from their examples (only when missing), data folders and the database. Safe to
+    re-run."""
     root = Path(root)
     profile = _profile_path(root)
     created = not profile.exists()
     if created:
         profile.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(EXAMPLE, profile)
+    companies = root / "companies.yaml"
+    if not companies.exists():
+        shutil.copyfile(COMPANIES_EXAMPLE, companies)
     dirs = [root / "data" / "inbox", root / "reports", root / "profile" / "cv-source"]
     for d in dirs:
         d.mkdir(parents=True, exist_ok=True)
     db = root / "data" / "jobhunt.db"
     connect(db).close()
-    return {"profile": str(profile), "profile_created": created, "db": str(db), "dirs": [str(d) for d in dirs]}
+    return {"profile": str(profile), "profile_created": created, "companies": str(companies), "db": str(db),
+            "dirs": [str(d) for d in dirs]}
 
 
 def _load_profile(path: Path, root: Path) -> tuple[dict, Check]:
@@ -116,12 +122,49 @@ def _playwright_check(root: Path) -> Check:
     return Check("Playwright MCP", True, ".mcp.json → playwright")
 
 
-def _pdf_check() -> Check:
+def _word_cv_check(person: dict, root: Path) -> Check:
+    """/tailor-cv edits a copy of each CV's Word original; without one /apply sends the plain CV PDF."""
     from . import cvtailor
+    name = "Word CV for tailored CVs"
+    paths = {"main": person.get("cv_file"), **(person.get("cv_variants") or {})}
+    if not paths["main"]:
+        return Check(name, False, "needs personal.cv_file first", required=False)
+    found, missing = [], []
+    for cv, rel in paths.items():
+        pdf = Path(rel) if Path(rel).is_absolute() else root / rel
+        candidates = cvtailor.docx_candidates(pdf, cv, root / "profile" / "cv-source")
+        hit = next((c for c in candidates if c.exists()), None)
+        (found if hit else missing).append(_rel(hit or candidates[-2], root))
+    if missing:
+        return Check(name, False, f"missing {', '.join(missing)} (until then the plain CV PDF is sent)",
+                     "save your CV as a Word file (.docx) there, same name as the PDF; Google Docs: File → Download "
+                     "→ Microsoft Word", required=False)
+    return Check(name, True, ", ".join(found), required=False)
+
+
+def _pdf_check(export_test: bool = False) -> Check:
+    from . import cvtailor
+    title = "PDF exporter for tailored CVs"
     name = cvtailor.pdf_exporter()
     if not name:
-        return Check("PDF exporter for tailored CVs", False, "none found", cvtailor.INSTALL_HINT, required=False)
-    return Check("PDF exporter for tailored CVs", True, name, required=False)
+        return Check(title, False, "none found", cvtailor.INSTALL_HINT, required=False)
+    if not export_test:
+        return Check(title, True, f"{name} (`uv run jobhunt doctor --export-test` tries a real export)", required=False)
+    try:
+        return Check(title, True, f"{cvtailor.test_export()} (test export worked)", required=False)
+    except RuntimeError as e:
+        return Check(title, False, f"{name} found, but the test export failed: {e}",
+                     "open Word once and allow access if macOS asks, then run the test again", required=False)
+
+
+def _font_check() -> Check:
+    from . import cover
+    fonts = cover.font_pair()
+    if not fonts:
+        return Check("cover letter font", False, "no Unicode font found: accented letters outside Western Europe "
+                     "(ł, ő, ə) print without accents", "install DejaVu Sans or Liberation Sans (Debian/Ubuntu: "
+                     "`sudo apt install fonts-dejavu`)", required=False)
+    return Check("cover letter font", True, Path(fonts[0]).name, required=False)
 
 
 def _db_check(root: Path) -> Check:
@@ -147,7 +190,7 @@ def _companies_check(root: Path) -> Check:
     path = root / "companies.yaml"
     if not path.exists():
         return Check("companies.yaml", False, "missing: company career boards are skipped",
-                     "optional: /setup step 8 builds a watchlist", required=False)
+                     "run `uv run jobhunt init` (creates it from companies.example.yaml)", required=False)
     try:
         companies = (yaml.safe_load(path.read_text()) or {}).get("companies") or []
     except (yaml.YAMLError, AttributeError) as e:
@@ -165,7 +208,7 @@ def _companies_check(root: Path) -> Check:
     return Check("companies.yaml", True, f"{len(companies)} companies")
 
 
-def checks(root: Path = ROOT) -> list[Check]:
+def checks(root: Path = ROOT, export_test: bool = False) -> list[Check]:
     root = Path(root)
     profile, profile_check = _load_profile(_profile_path(root), root)
     s = settings.from_dict(profile.get("search") or {})
@@ -173,11 +216,11 @@ def checks(root: Path = ROOT) -> list[Check]:
     search = Check("search settings", s.configured,
                    f"{s.city}, {s.country}; works in {', '.join(s.languages)}" if s.configured
                    else "search.country and search.city are not set", "run /setup (search settings step)")
-    return [profile_check, search, _cv_check(person, root), _password_check(s, person), _playwright_check(root),
-            _pdf_check(), _db_check(root), _companies_check(root)]
+    return [profile_check, search, _cv_check(person, root), _word_cv_check(person, root), _password_check(s, person),
+            _playwright_check(root), _pdf_check(export_test), _font_check(), _db_check(root), _companies_check(root)]
 
 
-def run(root: Path = ROOT) -> tuple[str, bool]:
-    """(report text, every required check passed)."""
-    results = checks(root)
+def run(root: Path = ROOT, export_test: bool = False) -> tuple[str, bool]:
+    """(report text, every required check passed). export_test exports a test page with Word / LibreOffice."""
+    results = checks(root, export_test)
     return "\n".join(c.line() for c in results) + "\n", all(c.ok for c in results if c.required)

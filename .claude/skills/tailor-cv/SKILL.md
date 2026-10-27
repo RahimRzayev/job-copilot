@@ -10,11 +10,13 @@ and `/apply`. It never submits or uploads anything.
 
 Prerequisites (`uv run jobhunt doctor` checks all of them and prints the expected paths):
 - `profile/profile.yaml` (no profile → tell the user to run /setup first and stop).
-- The editable CV as a DOCX in `profile/cv-source/`, one per CV (`personal.cv_file` and each `personal.cv_variants`
-  entry). The DOCX is never edited; copies are.
+- The editable CV as a DOCX in `profile/cv-source/` with the PDF's file name (`cv.pdf` → `cv.docx`; a variant may
+  also sit in `profile/cv-source/<variant>/`), one per CV (`personal.cv_file` and each `personal.cv_variants` entry).
+  The DOCX is never edited; copies are.
 - A PDF exporter: Microsoft Word (macOS or Windows) or LibreOffice (any OS, `soffice` on the PATH). Use the program
   the original PDF came from when both exist, so fonts and layout match.
-If doctor reports one missing, say what is missing and stop; `/apply` then uses the base CV.
+If doctor reports one missing, say what is missing and stop; `/apply` then uses the base CV. First run on this
+machine: `uv run jobhunt doctor --export-test` proves Word / LibreOffice really exports before any job is built.
 
 ## 1. Shortlisted jobs
 `uv run jobhunt list --status shortlisted` → the ids. If none, say so and stop.

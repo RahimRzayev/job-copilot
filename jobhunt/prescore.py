@@ -12,7 +12,7 @@ from functools import lru_cache
 import yaml
 
 from . import settings
-from .prefilter import JUNIOR_TITLE, alternation, required_years
+from .prefilter import JUNIOR_TITLE, alternation, manager_in_role, place_rx, required_years, roles_rx
 
 PROFILE = settings.PROFILE
 
@@ -22,10 +22,10 @@ LEVEL_WEIGHT = {"strong": 3, "working": 2, "basic": 1}
 ALIASES = {
     "python": [r"python"], "django rest framework": [r"\bdrf\b", r"django rest"], "django": [r"django"],
     "typescript": [r"typescript", r"\bts\b"], "javascript": [r"javascript", r"\bjs\b"],
-    "react": [r"react"], "next.js": [r"next\.?js"], "node.js": [r"node\.?js", r"\bnode\b"],
+    "react": [r"\breact(\.?js)?\b"], "next.js": [r"next\.?js"], "node.js": [r"node\.?js", r"\bnode\b"],
     "go": [r"\bgo\b", r"golang"], "rust": [r"\brust\b"], "java": [r"\bjava\b"], "c#": [r"c#", r"\.net\b"],
     "c++": [r"c\+\+"], "postgresql": [r"postgres"], "sql": [r"\bsql\b"], "nosql": [r"nosql", r"mongo"],
-    "rest": [r"\brest\b", r"\bapi"], "oauth": [r"\bjwt\b", r"oauth"], "docker": [r"docker", r"container"],
+    "rest": [r"\brest(ful)?\s*api", r"\brestful\b", r"\bapi"], "oauth": [r"\bjwt\b", r"oauth"], "docker": [r"docker", r"container"],
     "kubernetes": [r"kubernetes", r"\bk8s\b"], "linux": [r"linux", r"bash", r"unix"],
     "ci/cd": [r"ci/cd", r"\bci\b", r"github actions", r"gitlab ci", r"jenkins"],
     "aws": [r"\baws\b", r"amazon web services"], "azure": [r"azure"], "gcp": [r"\bgcp\b", r"google cloud"],
@@ -33,7 +33,7 @@ ALIASES = {
     "git": [r"\bgit\b", r"github", r"gitlab"], "orm": [r"\borm\b", r"sqlalchemy", r"hibernate", r"prisma", r"drizzle"],
     "llm": [r"\bllm", r"genai", r"generative ai", r"openai", r"gemini", r"\brag\b", r"\bai\b"],
     "machine learning": [r"machine learning", r"\bml\b", r"scikit", r"pytorch", r"tensorflow"],
-    "power bi": [r"power ?bi"], "excel": [r"excel"], "tableau": [r"tableau"], "pandas": [r"pandas"],
+    "power bi": [r"power ?bi"], "excel": [r"\bexcel\b"], "tableau": [r"tableau"], "pandas": [r"pandas"],
     "it support": [r"helpdesk", r"help desk", r"service desk", r"it support", r"troubleshoot"],
     "networking": [r"network", r"\bvpn\b", r"tcp/ip", r"\blan\b"],
 }
@@ -78,8 +78,6 @@ SENIOR_LEVELS = {"mid", "mid-senior level", "senior", "director", "executive", "
 # With "mid" in settings.levels, mid-level titles and LinkedIn's "Mid-Senior level" are targets, not penalties.
 SENIOR_ONLY_TITLE = re.compile(r"\b(senior|sr|lead|principal|staff|expert|architect|manager|head of|director)\b", re.I)
 SENIOR_ONLY_LEVELS = {"senior", "director", "executive", "manager"}
-LEVEL_WORDS = {"intern", "internship", "junior", "graduate", "trainee", "student", "working", "entry", "level", "mid",
-               "senior", "and", "or", "of", "the"}
 
 
 @lru_cache(maxsize=8)
@@ -92,17 +90,9 @@ def _offsite(s: settings.Settings) -> re.Pattern:
     if not s.relocate:
         parts.append(r"relocation|relokacj")
         if s.other_cities:
-            city = rf"\b(?:{alternation(s.other_cities)})\w*"
+            city = f"(?:{place_rx(s.other_cities).pattern})"
             parts.append(rf"hybrid\b.{{0,60}}{city}|{city}.{{0,40}}\b(on[- ]?site|office)\b")
     return re.compile("(" + "|".join(parts) + ")", re.I)
-
-
-@lru_cache(maxsize=8)
-def _roles(s: settings.Settings) -> re.Pattern | None:
-    """Any word of the user's target roles ("data analyst" -> data, analyst) in a title; None without roles. Level
-    words don't count: "junior" alone says nothing about the role."""
-    words = {w for role in s.roles for w in re.split(r"[\s/,-]+", role) if len(w) > 1} - LEVEL_WORDS
-    return re.compile(rf"\b({alternation(sorted(words))})", re.I) if words else None
 
 
 def years_points(years: int, s: settings.Settings) -> int:
@@ -147,7 +137,11 @@ def prescore(job: dict, skills: list[tuple[str, int]] | None = None) -> tuple[in
     if hits:
         why.append("skills: " + ", ".join(hits[:6]))
 
-    if JUNIOR_TITLE.search(title):
+    if not s.students and STUDENT_ROLE.search(title):
+        # Student jobs need enrolment: a graduate or anyone without student levels can't take them.
+        score -= 15
+        why.append("student role (not in your levels)")
+    elif JUNIOR_TITLE.search(title):
         score += 22
         why.append("entry-level title")
     elif JUNIOR_TEXT.search(text):
@@ -159,7 +153,8 @@ def prescore(job: dict, skills: list[tuple[str, int]] | None = None) -> tuple[in
         score += 8
         why.append("student role")
     senior_title, senior_levels = (SENIOR_ONLY_TITLE, SENIOR_ONLY_LEVELS) if s.mid else (SENIOR_TITLE, SENIOR_LEVELS)
-    if senior_title.search(title) or (job.get("seniority") or "").lower() in senior_levels:
+    if (senior_title.search(title) and not manager_in_role(title, s, senior_title)) \
+            or (job.get("seniority") or "").lower() in senior_levels:
         score -= 15
         why.append("senior/mid level")
     if _offsite(s).search(text):
@@ -171,7 +166,7 @@ def prescore(job: dict, skills: list[tuple[str, int]] | None = None) -> tuple[in
         score += years_points(years, s)
         why.append(f"{years}y asked")
 
-    roles = _roles(s)
+    roles = roles_rx(s)
     if (s.tech_only and ROLE_FAMILY.search(title)) or (roles and roles.search(title)):
         score += 12
     elif s.tech_only or roles:

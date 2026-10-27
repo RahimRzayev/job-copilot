@@ -129,6 +129,7 @@ def test_build_writes_tailored_pdf_with_the_cv_file_name(conn, monkeypatch, tmp_
     out = cvtailor.build(conn, job("AWS services.", id=7))
     assert out["built"] and out["placed"] == {"cloud-devops": ["AWS"]}
     assert Path(out["pdf"]) == tmp_path / "cvs" / "7" / "cv.pdf" and Path(out["pdf"]).exists()
+    assert list((tmp_path / "work").iterdir()) == []  # no CV copies left behind
 
 
 def test_formfill_uses_base_cv_when_no_tailored_copy():
@@ -205,3 +206,23 @@ def test_pdf_export_without_any_exporter_names_the_options(monkeypatch, tmp_path
     assert cvtailor.pdf_exporter() is None
     with pytest.raises(RuntimeError, match="LibreOffice"):
         cvtailor.export_pdf(tmp_path / "cv-source" / "cv.docx", tmp_path / "out.pdf")
+
+
+def test_non_it_tools_are_recognised_and_excellent_is_not_excel():
+    terms = cvtailor.job_terms({"title": "Marketing Assistant", "description": (
+        "Excellent writing. HubSpot, Google Ads, Meta Ads, SEO, Photoshop, WordPress, TikTok and Instagram. "
+        "Customer reactivation campaigns in Braze.")})
+    assert {"hubspot", "google ads", "meta ads", "seo", "photoshop", "wordpress", "tiktok", "instagram",
+            "braze"} <= terms
+    assert not terms & {"excel", "react"}
+
+
+def test_marketing_skills_go_to_the_marketing_line(tmp_path):
+    import docx
+    d = docx.Document()
+    d.add_heading("Skills", 1)
+    d.add_paragraph("Marketing: social media, copywriting, Mailchimp, Google Analytics")
+    d.add_paragraph("Design: Canva")
+    sections = cvtailor.layout(d)
+    assert cvtailor.guess_section("hubspot", sections) == "marketing"
+    assert cvtailor.guess_section("photoshop", sections) == "design"

@@ -7,6 +7,7 @@ Tests install their own settings with `use(Settings(...))`.
 """
 
 import os
+import re
 from dataclasses import dataclass, fields
 from functools import lru_cache
 from pathlib import Path
@@ -88,8 +89,9 @@ class Settings:
         return any(name in low for name in names)
 
     def other_city(self, text: str) -> str | None:
+        # At a word start: "essen" must not match "Hessen" (prefixes are fine: "krak" for Kraków / Krakowie).
         low = (text or "").lower()
-        return next((c for c in self.other_cities if c in low), None)
+        return next((c for c in self.other_cities if re.search(rf"(?<!\w){re.escape(c)}", low)), None)
 
 
 # Native names and ISO 639-1 codes job boards use for languages -> lower-case English name.

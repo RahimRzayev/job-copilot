@@ -60,7 +60,8 @@ def _card(j: dict) -> str:
         rows.append(f"<div class='tags {cls}'><b>History:</b> {_e(j['history_note'])}</div>")
     if j.get("employer_note"):
         cls = "" if j["employer_note"].endswith("no blockers found") else "flag"
-        rows.append(f"<div class='tags {cls}'><b>Company page:</b> {_e(j['employer_note'])}</div>")
+        note = j["employer_note"].removeprefix("company page: ")
+        rows.append(f"<div class='tags {cls}'><b>Company page:</b> {_e(note)}</div>")
     if notes.get("red_flags"):
         rows.append(f"<div class='tags flag'><b>Flags:</b> {_e(', '.join(notes['red_flags']))}</div>")
     badges = ""

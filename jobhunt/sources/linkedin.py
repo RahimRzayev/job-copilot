@@ -4,6 +4,7 @@ Applying through LinkedIn is never automated (ToS / account ban risk).
 """
 
 import re
+import sys
 import time
 from urllib.parse import unquote
 
@@ -101,6 +102,11 @@ def _parse_cards(markup: str) -> list[Job]:
     return jobs
 
 
+def _progress(msg: str) -> None:
+    """One stderr line per search: a full scan runs 20+ minutes and otherwise prints nothing until the end."""
+    print(f"linkedin: {msg}", file=sys.stderr, flush=True)
+
+
 def fetch(http: Http, location: str | None = None, hours: int = 24, pages: int = 2,
           mode: str = "full") -> list[Job]:
     """full: no keyword — every job posted in the city, plus every job in the country (remote ones among them),
@@ -126,7 +132,11 @@ def fetch(http: Http, location: str | None = None, hours: int = 24, pages: int =
     searches = location_searches()
     keywords = slice_keywords()
     window = {"f_TPR": f"r{hours * 3600}"}
-    found = [_search(http, {**base, **window}) for base in searches]
+    found = []
+    for base in searches:
+        found.append(_search(http, {**base, **window}))
+        _progress(f"{base['location']}: {len(found[-1])} jobs" + (" (limit reached: keyword slices next)"
+                                                                     if len(found[-1]) >= CAP else ""))
     capped = [len(f) >= CAP for f in found]
     sizes: list[list[int]] = [[] for _ in searches]
     skipped: list[list[str]] = [[] for _ in searches]
@@ -145,15 +155,17 @@ def fetch(http: Http, location: str | None = None, hours: int = 24, pages: int =
             part = _search(http, {**base, "keywords": kw, **window})
             sizes[i].append(len(part))
             found[i].update(part)
+            _progress(f"{base['location']} · {kw!r}: {len(part)} jobs ({len(found[i])} so far)")
     STATS.clear()
     for i, base in enumerate(searches):
         STATS.append({"search": base["location"], "jobs": len(found[i]), "keyword slices": capped[i],
                       "slices at limit": sum(1 for n in sizes[i] if n >= CAP), "slices skipped": skipped[i]})
         for j in found[i].values():
-            if base.get("f_WT") == "2":
+            if base.get("f_WT") == "2" and not settings.get().in_city(j.location):
                 # The guest endpoint ignores f_WT (same results with f_WT=1, 2 or none), so this is really the whole
                 # country. remote=True keeps other-city jobs until their description is read:
                 # prefilter.work_mode_reason then drops LinkedIn jobs pinned to another city without remote wording.
+                # Jobs in the user's city need no such pass, and the flag would show them as remote in the report.
                 j.remote = True
             jobs.setdefault(j.source_id, j)
     return list(jobs.values())

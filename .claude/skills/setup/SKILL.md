@@ -16,12 +16,18 @@ Rules (same as everywhere in this project):
   the user answers in one message.
 
 ## 1. Install check
-1. `uv run jobhunt init` (creates `profile/profile.yaml` from the example, `data/` and the database; safe to re-run).
+1. `uv run jobhunt init` (creates `profile/profile.yaml` and `companies.yaml` from their examples, `data/` and the
+   database; safe to re-run).
 2. `uv run jobhunt doctor`. Missing items are fixed in the later steps; if `uv` itself is missing, point to the README.
 
 ## 2. CV
 1. Ask the user to put their CV as a PDF in `profile/` (e.g. `profile/cv.pdf`) and say the file name. If they also
-   want tailored CVs per job (`/tailor-cv`), ask for the Word (.docx) source too and put it in `profile/cv-source/`.
+   want tailored CVs per job (`/tailor-cv`), ask for the Word (.docx) source too and put it in `profile/cv-source/`
+   under the PDF's name (`profile/cv.pdf` → `profile/cv-source/cv.docx`). Google Docs CV: File → Download → Microsoft
+   Word. With a Word file, run `uv run jobhunt doctor --export-test` once: it exports a test page the way
+   `/tailor-cv` does (on macOS, Word may ask the user to allow access; tell them to click OK).
+   No Word file (Canva, LaTeX) → fine: tailoring is skipped and the plain PDF is sent. Cover letters need nothing
+   extra; they are written from profile.yaml, so the fuller the profile, the better the letters.
 2. Read the PDF. Fill `personal`, `education`, `experience`, `languages`, `skills`, `projects`, `certifications` in
    `profile/profile.yaml` with what the CV states, nothing more. Set `personal.cv_file`. Dates as YYYY-MM (forms ask
    for the month); a CV that gives only a year → ask for the month. Education `status`: in progress or completed
@@ -44,7 +50,8 @@ Ask:
 3. Willing to relocate within the country (on-site anywhere)?
 4. Languages you can WORK in (jobs requiring any other language get dropped).
 5. Which roles do you want? Their own words, most important first ("data analyst, marketing assistant"). Never
-   suggest roles from the CV as defaults: the user decides. Then levels (internship / graduate / junior / mid), job
+   suggest roles from the CV as defaults: the user decides. Then levels (internship / working student / trainee /
+   graduate / junior / mid), job
    titles they never want (optional: "sales, call center"), and the most years of experience a job may require
    before it's dropped (juniors: 2-3).
 6. Expected gross monthly salary and currency (only typed into forms; never used to filter).
@@ -54,7 +61,9 @@ Then fill the rest yourself and show it for confirmation:
 - `country_code` (ISO), `country_names` (English + local spellings, lower case: `["germany", "deutschland"]`),
   `city_names` (English, local and common foreign spellings), `other_cities` (lower-case prefixes of the country's
   other big cities, so on-site jobs there are dropped unless remote), `roles` and `levels` (lower case, as the user said them),
-  `exclude_titles`, `tech_only` (true only when every role is an IT role: it drops sales / HR / legal / finance
+  `exclude_titles` (each word the user gave plus the other words job ads in that country use for it, shown for
+  confirmation: "sales" → account executive, business development, BDR, SDR, plus the local word such as
+  "vertrieb"), `tech_only` (true only when every role is an IT role: it drops sales / HR / legal / finance
   titles and adds IT-only job boards; mixed or non-IT roles → false; unsure → ask), `keywords` (level words searched
   before the roles: "working student", "intern"... student words first for students), `sources: []` (auto: LinkedIn + company career sites + the job boards
   known for that country; today only Poland has extra boards).
@@ -76,7 +85,8 @@ sees it.
 2. Check: `uv run jobhunt secret check` (prints only whether it's set and its length).
 
 ## 7. Common application questions
-1. Read `setup/starter-questions.yaml`. Replace `{country}`, `{city}`, `{currency}` from the settings.
+1. Read `setup/starter-questions.yaml`. Replace `{country}`, `{city}`, `{currency}` from the settings. Skip
+   questions whose `when` doesn't fit the user (meanings at the top of the file).
 2. Skip questions the answer bank already has (`uv run jobhunt qa lookup "<question>"`, similarity >= 0.85 and same
    meaning) and questions the profile already answers (citizenship, start date...: save those from the profile after
    showing them).
@@ -89,7 +99,9 @@ sees it.
 `companies.yaml` lists employers whose career sites are searched directly (Workday, Greenhouse, Lever,
 SmartRecruiters...). It starts empty. Ask which companies the user wants to work for (now or later: "add <company>
 to my watchlist" works any time). Only add companies the user names. For each, find the career-site system and slug
-with WebSearch, add an entry in the format at the top of the file, and check it loads (`uv run jobhunt doctor`).
+with WebSearch, add an entry in the format at the top of the file, and check it loads: `uv run jobhunt watchlist
+"<company>"` → jobs found, or the error. 0 jobs usually means a wrong slug (some systems return an empty list
+instead of an error): compare with the company's career site, or say it has no openings in the country now.
 Without a watchlist, LinkedIn and the country's job boards still cover the search.
 
 ## Done

@@ -23,6 +23,7 @@ ENRICHERS = {
     "bulldogjob": bulldogjob.enrich,
     "linkedin": linkedin.enrich,
     "workday": ats_boards.enrich_workday,
+    "smartrecruiters": ats_boards.enrich_smartrecruiters,
 }
 # Sources `scrape` can run; each runs only when settings.enabled(name). Pracuj is scraped in the browser (`ingest`).
 ALL_SOURCES = ("justjoin", "nofluffjobs", "bulldogjob", "englishjobs", "linkedin", "company_boards")
@@ -114,8 +115,22 @@ def store(conn: sqlite3.Connection, job: Job, status: str, reason: str | None = 
     return cur.rowcount == 1
 
 
+# The first scan of a newly added watchlist company takes every opening it has (open postings stay up for weeks);
+# after that only the usual window.
+NEW_BOARD_HOURS = 365 * 24
+
+
+def new_companies(conn: sqlite3.Connection) -> frozenset[str]:
+    """Watchlist companies with no job from their career site in the database yet: just added."""
+    boards = sorted(prefilter.COMPANY_BOARDS)
+    known = {r[0] for r in conn.execute(
+        f"SELECT DISTINCT company FROM jobs WHERE source IN ({','.join('?' * len(boards))})", boards)}
+    return frozenset(str(c.get("name")) for c in _companies()) - known
+
+
 def process(conn: sqlite3.Connection, http: Http | None, jobs: list[Job], hours: int,
-            max_years: int, report: Report, enrich_limit: int = 300, mode: str = "full") -> None:
+            max_years: int, report: Report, enrich_limit: int = 300, mode: str = "full",
+            new_companies: frozenset[str] = frozenset()) -> None:
     rows = conn.execute("SELECT id, dedupe_key, source, source_id, company, title, status FROM jobs").fetchall()
     known = {r["dedupe_key"] for r in rows}
     # dedupe_key changed format over time, so also match the board's own id (boards re-list under a new key).
@@ -130,6 +145,10 @@ def process(conn: sqlite3.Connection, http: Http | None, jobs: list[Job], hours:
     seen: set[str] = set()
     survivors: list[Job] = []
 
+    def window(job: Job) -> int:
+        new_board = job.source in prefilter.COMPANY_BOARDS and job.company in new_companies
+        return NEW_BOARD_HOURS if new_board else hours
+
     def drop(job: Job, reason: str) -> None:
         bucket = _bucket(reason)
         report.filtered[bucket] = report.filtered.get(bucket, 0) + 1
@@ -141,7 +160,7 @@ def process(conn: sqlite3.Connection, http: Http | None, jobs: list[Job], hours:
             report.known += 1
             continue
         seen.add(key)
-        reason = prefilter.check_listing(job, hours, mode=mode)
+        reason = prefilter.check_listing(job, window(job), mode=mode)
         if reason:
             drop(job, reason)
         else:
@@ -160,7 +179,7 @@ def process(conn: sqlite3.Connection, http: Http | None, jobs: list[Job], hours:
             except Exception as e:
                 report.errors.append(f"enrich {job.source} {job.source_id}: {e}")
         # Re-run listing checks too: enrichment can fill in the publish date (Bulldogjob).
-        reason = prefilter.check_listing(job, hours, mode=mode) or prefilter.check_details(job, max_years)
+        reason = prefilter.check_listing(job, window(job), mode=mode) or prefilter.check_details(job, max_years)
         rk = role_key(job.company, job.title)
         if not reason and rk in kept_roles:
             reason = f"duplicate of #{kept_roles[rk]}" if kept_roles[rk] else "duplicate (same batch)"
@@ -187,8 +206,11 @@ def scrape(conn: sqlite3.Connection, sources: tuple[str, ...] = ALL_SOURCES, hou
     sources = tuple(name for name in sources if s.enabled(name))
     http = Http()
     max_years = max_years if max_years is not None else prefilter.MAX_YEARS[mode]
+    new = new_companies(conn) if "company_boards" in sources else frozenset()
     jobs = fetch_all(http, sources, hours, report, mode)
-    process(conn, http, jobs, hours, max_years, report, enrich_limit=enrich_limit, mode=mode)
+    process(conn, http, jobs, hours, max_years, report, enrich_limit=enrich_limit, mode=mode, new_companies=new)
+    if new:
+        report.fetched["new watchlist companies (all open jobs)"] = sorted(new)
     report.fetched["prescored"] = prescore.run(conn)["scored"]
     report.fetched["429 waits"] = http.throttled
     report.fetched["429 wait minutes"] = round(http.throttle_wait / 60, 1)

@@ -121,7 +121,7 @@ POLISH_REQUIRED_TEXT = POLISH.required  # imported by name elsewhere
 # How job text names a language: its English name, plus the Polish adjective Polish ads use ("z j. niemieckim").
 # Polish itself is covered by its pack.
 LANGUAGE_WORDS = {
-    "english": ("english", r"angielsk\w*"), "german": ("german", r"niemieck\w*", "deutsch"),
+    "english": ("english", r"angielsk\w*"), "german": ("german", r"niemieck\w*", "deutsch", r"deutschkenntniss\w*"),
     "french": ("french", r"francusk\w*"), "spanish": ("spanish", r"hiszpańsk\w*"), "italian": ("italian", r"włosk\w*"),
     "czech": ("czech", r"czesk\w*"), "dutch": ("dutch",), "slovak": ("slovak",), "hungarian": ("hungarian",),
     "romanian": ("romanian",), "finnish": ("finnish",), "swedish": ("swedish",), "norwegian": ("norwegian",),
@@ -139,14 +139,27 @@ def _language_names(langs: tuple[str, ...]) -> str:
     return r"\b(?:" + "|".join(w for lang in langs for w in LANGUAGE_WORDS.get(lang, (re.escape(lang),))) + r")\b"
 
 
+# After "good / strong <language>": words that make it a language ("Good German skills", "strong German or French"),
+# not a company trait ("strong German roots", "the German market").
+LANGUAGE_AFTER = (r"(?=\s*(language|skills?|knowledge|proficiency|communication|speaking|and\b|or\b|is\b|are\b|"
+                  r"required|[-–(,.;:/\n]|$))")
+
+
 @lru_cache(maxsize=64)
 def required_rx(langs: tuple[str, ...]) -> re.Pattern:
     """Generic "<language> required" wording: fluent / native / C1 / B2 / required next to the language's name."""
     if not langs:
         return NEVER
     n = _language_names(langs)
-    return re.compile(rf"(fluent|fluently|native|proficien\w*|very good|excellent|c1|b2)\b[^.\n]{{0,40}}{n}"
-                      rf"|{n}[^.\n]{{0,25}}\b(fluent|fluently|native|required|c1|b2)\b", re.I)
+    return re.compile(
+        rf"\b(fluen\w*|native|proficien\w*|very good|excellent|c1|b2|sehr gute?\w*|gute[nr]?|verhandlungssicher\w*|"
+        rf"flie(ß|ss)end\w*)\b[^.\n]{{0,40}}{n}"
+        # "German language skills are a must"; not "German is not required" / "no German required"
+        rf"|(?<!no )(?<!without ){n}[^.\n]{{0,25}}(?<!not )\b(fluent|fluently|native|required|c1|b2|must|essential|"
+        rf"mandatory)\b"
+        # "Good German skills", "Business-level German"; not "the German market"
+        rf"|\b(good|strong|solid|business[- ]level|professional)\s+(command of\s+|knowledge of\s+)?{n}{LANGUAGE_AFTER}"
+        rf"|{n}\s+speaker", re.I)
 
 
 @lru_cache(maxsize=64)
@@ -154,7 +167,8 @@ def title_hint_rx(langs: tuple[str, ...]) -> re.Pattern:
     """A title asking for a language: "Service Desk Agent with Czech", "Developer z j. niemieckim"."""
     if not langs:
         return NEVER
-    return re.compile(rf"\b(with|z|speaking|\()\s*(j\.\s*)?{_language_names(langs)}", re.I)
+    names = _language_names(langs)
+    return re.compile(rf"\b(with|z|speaking|\()\s*(j\.\s*)?{names}|{names}[- ]speaking\b", re.I)
 
 
 class _FromSettings:
@@ -172,13 +186,18 @@ def _unspoken(s: Settings, langs) -> tuple[str, ...]:
 
 
 def _packs(s: Settings) -> list[tuple[str, LanguagePack]]:
-    """Packs of the languages the user doesn't speak: only those can block a job."""
-    return [(lang, pack) for lang, pack in PACKS.items() if not s.speaks(lang)]
+    """Packs of the languages the user doesn't speak: only those can block a job. The search country's own language
+    comes first, so a title word two languages share ("Referent") is reported in the local one."""
+    home = LANGUAGE_ALIASES.get(s.country_code.lower())
+    return sorted(((lang, pack) for lang, pack in PACKS.items() if not s.speaks(lang)), key=lambda lp: lp[0] != home)
 
 
 # Generic "<language> required" wording for the OTHER_LANGUAGES the user doesn't speak.
 OTHER_LANG_TEXT = _FromSettings(lambda s: required_rx(_unspoken(s, OTHER_LANGUAGES)))
 NICE_TO_HAVE = re.compile(r"(nice to have|is a plus|an advantage|mile widzian|będzie atutem|dodatkowym atutem)", re.I)
+# Language lines also say "is a bonus" / "desirable" / "von Vorteil". Kept out of NICE_TO_HAVE: a "Desirable:" heading
+# just above a requirements list hid the "Minimum 5 years" under it.
+LANGUAGE_NICE = re.compile(NICE_TO_HAVE.pattern + r"|a bonus|desirable|von vorteil|wünschenswert", re.I)
 
 
 # ---------- titles ----------
@@ -289,6 +308,38 @@ def foreign_title(title: str, s: Settings) -> str | None:
     return None
 
 
+# Level words say nothing about the role: "junior" alone must not match every junior title.
+LEVEL_WORDS = {"intern", "internship", "junior", "graduate", "trainee", "student", "working", "entry", "level", "mid",
+               "senior", "and", "or", "of", "the"}
+
+
+# Job-function words name no field: "assistant" from "marketing assistant" must not make "Assistant Store Manager"
+# one of the user's roles.
+FUNCTION_WORDS = {"assistant", "specialist", "coordinator", "associate", "executive", "officer", "consultant",
+                  "manager", "representative", "agent", "administrator"}
+
+
+@lru_cache(maxsize=16)
+def roles_rx(s: Settings, field_only: bool = False) -> re.Pattern | None:
+    """Any word of the user's target roles ("data analyst" -> data, analyst) in a title; None without roles.
+    field_only leaves out job-function words (FUNCTION_WORDS)."""
+    words = {w for role in s.roles for w in re.split(r"[\s/,-]+", role) if len(w) > 1} - LEVEL_WORDS
+    if field_only:
+        words -= FUNCTION_WORDS
+    return re.compile(rf"\b({alternation(sorted(words))})", re.I) if words else None
+
+
+def manager_in_role(title: str, s: Settings, senior_rx: re.Pattern) -> bool:
+    """"Marketing Manager", "Social Media Manager": outside IT, "manager" is often an entry-level title. With
+    tech_only off it is not senior when the title also names one of the user's roles and no other senior word;
+    years and level are then judged from the description."""
+    roles = roles_rx(s, field_only=True)
+    if s.tech_only or not roles or not re.search(r"\bmanager\b", title, re.I):
+        return False
+    rest = re.sub(r"\bmanager\b", " ", title, flags=re.I)
+    return bool(roles.search(rest)) and not (senior_rx.search(rest) or LEVEL_TITLE.search(rest))
+
+
 def check_listing(job: Job, hours: int, now: datetime | None = None, mode: str = "narrow") -> str | None:
     now = now or datetime.now(timezone.utc)
     s = settings.get()
@@ -301,7 +352,8 @@ def check_listing(job: Job, hours: int, now: datetime | None = None, mode: str =
     excluded = next((w for w in s.exclude_titles if re.search(rf"\b{re.escape(w)}", title, re.I)), None)
     if excluded:
         return f"excluded title ({excluded})"
-    if (senior_title.search(title) or LEVEL_TITLE.search(title)) and not JUNIOR_OVERRIDE.search(title):
+    if (senior_title.search(title) or LEVEL_TITLE.search(title)) and not JUNIOR_OVERRIDE.search(title) \
+            and not manager_in_role(title, s, senior_title):
         return "senior title"
     if PHD_TITLE.search(title):
         return "PhD required"
@@ -355,10 +407,10 @@ def check_details(job: Job, max_years: int | None = None) -> str | None:
     return remote_residency_reason(job) or work_mode_reason(job)
 
 
-def _firm(rx, text: str) -> bool:
+def _firm(rx, text: str, soft: re.Pattern = NICE_TO_HAVE) -> bool:
     """rx matches and no "nice to have" / "is a plus" next to the match softens it."""
     m = rx.search(text)
-    return bool(m) and not NICE_TO_HAVE.search(text[max(0, m.start() - 80): m.end() + 80])
+    return bool(m) and not soft.search(text[max(0, m.start() - 80): m.end() + 80])
 
 
 # Neutral titles hiding a senior role: "we are looking for a Senior Solution Engineer", "Hands-on MLOps or ML
@@ -449,6 +501,18 @@ def _full_remote(s: Settings) -> re.Pattern:
 
 
 @lru_cache(maxsize=8)
+@lru_cache(maxsize=8)
+def place_rx(cities: tuple[str, ...]) -> re.Pattern:
+    """One of these cities named as a place in running text ("our Essen office", "based in Kraków", "w Krakowie",
+    "Location: Gdańsk"), not any word that starts like one ("Essential")."""
+    if not cities:
+        return NEVER
+    names = alternation(cities)
+    return re.compile(rf"\b(?:in|at|near|from|w|we|location|lokalizacja|standort|miejsce pracy)\s*:?\s+"
+                      rf"(?:the\s+|our\s+)?({names})\w*"
+                      rf"|\b({names})\w*\s+(?:office|hub|site|campus|headquarters|hq|branch|area)\b", re.I)
+
+
 def _city_mention(s: Settings) -> re.Pattern:
     """The user's city named in text, inflected forms too (a final vowel may change)."""
     stems = {n[:-1] if len(n) > 4 and n[-1] in "aeiouy" else n for n in s.city_names}
@@ -468,7 +532,8 @@ def work_mode_reason(job: Job) -> str | None:
     city = other_city(loc, s)
     m = ONSITE.search(text)
     if m:
-        city = city or s.other_city(text.lower())
+        if not city and (place := place_rx(s.other_cities).search(text)):
+            city = next(g for g in place.groups() if g).lower()
         if city:
             return f"hybrid/on-site outside {s.city} ({city}: '{m.group(0)}')"
     # LinkedIn's remote filter is unreliable: a job pinned to another city needs explicit remote wording.
@@ -590,9 +655,9 @@ def _language_findings(text: str, s: Settings):
         if pack.stopwords and is_mostly(text, lang):
             yield "written", lang
     for lang, pack in packs:
-        if _firm(pack.required or required_rx((lang,)), text):
+        if _firm(pack.required or required_rx((lang,)), text, LANGUAGE_NICE):
             yield "required", lang
-    if _firm(required_rx(_unspoken(s, OTHER_LANGUAGES)), text):
+    if _firm(required_rx(_unspoken(s, OTHER_LANGUAGES)), text, LANGUAGE_NICE):
         yield "required", None
 
 

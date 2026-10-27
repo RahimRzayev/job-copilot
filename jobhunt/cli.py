@@ -124,7 +124,7 @@ def cmd_prescore(args: argparse.Namespace) -> None:
 
 def cmd_formfill(args: argparse.Namespace) -> None:
     message = Path(args.message_file).read_text() if args.message_file else ""
-    path = formfill.write_script(connect(), args.ats, args.id, message, args.source or "", args.cv)
+    path = formfill.write_script(connect(), args.ats, args.id, message, args.source or "", args.cv, args.force)
     _print({"script": str(path), "run_with": "mcp__playwright__browser_run_code_unsafe(filename=<script>)"})
 
 
@@ -278,9 +278,25 @@ def cmd_settings(args: argparse.Namespace) -> None:
             "profile": str(settings.PROFILE)})
 
 
+def cmd_watchlist(args: argparse.Namespace) -> None:
+    from .sources import ats_boards
+    from .sources.base import Http
+    companies = pipeline._companies()
+    wanted = {n.lower() for n in args.names}
+    if wanted:
+        companies = [c for c in companies if str(c.get("name", "")).lower() in wanted]
+    http = Http()
+    try:
+        rows = ats_boards.check(http, companies)
+    finally:
+        http.client.close()
+    found = {str(c.get("name", "")).lower() for c in companies}
+    _print({"companies": rows, "not_in_watchlist": sorted(wanted - found)})
+
+
 def cmd_doctor(args: argparse.Namespace) -> None:
     from . import doctor
-    text, ok = doctor.run()
+    text, ok = doctor.run(export_test=args.export_test)
     sys.stdout.write(text)
     if not ok:
         raise SystemExit(1)
@@ -312,7 +328,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("settings", help="the effective search settings (profile `search:` section) as JSON")
     p.set_defaults(func=cmd_settings)
     p = sub.add_parser("doctor", help="check the setup; one line per check with a fix (exit 1 if a required one fails)")
+    p.add_argument("--export-test", action="store_true",
+                   help="also export a test page to PDF with Word / LibreOffice (opens Word on macOS)")
     p.set_defaults(func=cmd_doctor)
+    p = sub.add_parser("watchlist", help="check that companies.yaml boards load: jobs found per company, or the error")
+    p.add_argument("names", nargs="*", help="only these companies (as named in companies.yaml)")
+    p.set_defaults(func=cmd_watchlist)
 
     p_s = sub.add_parser("secret", help="default job-site password in the OS keychain (never printed)")
     s_sub = p_s.add_subparsers(dest="secret_cmd", required=True)
@@ -342,10 +363,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("id", type=int)
     p.add_argument("phrasing")
 
-    p = qa_sub.add_parser("delete")
+    p = qa_sub.add_parser("delete", help="remove a saved answer by id")
     p.add_argument("id", type=int)
 
-    p = qa_sub.add_parser("list")
+    p = qa_sub.add_parser("list", help="every saved answer (optionally one tag)")
     p.add_argument("--tag")
 
     p_qa.set_defaults(func=cmd_qa)
@@ -387,7 +408,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--title")
     p = h_sub.add_parser("query", help="print the Gmail search query to run")
     p.add_argument("--days", type=int, help="incremental: only the last N days")
-    h_sub.add_parser("stats")
+    h_sub.add_parser("stats", help="imported history rows per kind (applied, rejected, test...)")
     p_h.set_defaults(func=cmd_history)
 
     p_a = sub.add_parser("alerts", help="LinkedIn job-alert emails from Gmail as a job source")
@@ -415,6 +436,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--message-file", help="cover message text file")
     p.add_argument("--source", help="'how did you hear' label override")
     p.add_argument("--cv", default="main", help=CV_HELP)
+    p.add_argument("--force", action="store_true",
+                   help="write it although the job record has no link to this ATS (form on a custom domain)")
     p.set_defaults(func=cmd_formfill)
 
     p = sub.add_parser("verify", help="check jobs are still open on the board AND the employer ATS")

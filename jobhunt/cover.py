@@ -12,6 +12,7 @@ import unicodedata
 from datetime import date
 from pathlib import Path
 
+import yaml
 from fpdf import FPDF
 
 from . import formfill, settings
@@ -60,8 +61,25 @@ def path_for(job_id: int) -> Path:
     return OUT / str(job_id) / filename()
 
 
-def _font_pair() -> tuple[str, str] | None:
+def font_pair() -> tuple[str, str] | None:
     return next(((r, b) for r, b in FONTS if Path(r).exists() and Path(b).exists()), None)
+
+
+def _latin1(text: str) -> str:
+    """For the core fonts (Latin-1 only): other letters lose their accents (ł → l) instead of turning into '?'."""
+    text = "".join(c if ord(c) < 256 else _ascii(c) for c in text.translate(_LATIN1))
+    return text.encode("latin-1", "replace").decode("latin-1")
+
+
+def header_lines(person: dict) -> list[str]:
+    """Contact lines under the name, with the same email and country the application forms get: where the user
+    lives, the job inbox and phone, then the profile links."""
+    s = settings.get()
+    place = ", ".join(x for x in (person.get("city") or (person.get("address") or {}).get("city"),
+                                  person.get("country") or s.country) if x)
+    links = [(person.get(k) or "").removeprefix("https://") for k in ("linkedin", "github", "portfolio")]
+    return ["  |  ".join(c for c in line if c)
+            for line in ([place, s.job_email or person.get("email", ""), person.get("phone", "")], links)]
 
 
 def render(conn, job_id: int, body: str) -> Path:
@@ -70,26 +88,21 @@ def render(conn, job_id: int, body: str) -> Path:
     pdf = FPDF(format="A4")
     pdf.set_margins(22, 20, 22)
     pdf.set_auto_page_break(True, 20)
-    fonts = _font_pair()
+    fonts = font_pair()
     if fonts:
         pdf.add_font("Body", "", fonts[0])
         pdf.add_font("Body", "B", fonts[1])
         family, clean = "Body", str
     else:
-        family = "Helvetica"
-        def clean(text: str) -> str:
-            return text.translate(_LATIN1).encode("latin-1", "replace").decode("latin-1")
+        family, clean = "Helvetica", _latin1
     pdf.add_page()
 
     pdf.set_font(family, "B", 16)
     pdf.cell(0, 8, clean(person.get("full_name", "")), new_x="LMARGIN", new_y="NEXT")
     pdf.set_font(family, "", 9.5)
     pdf.set_text_color(90, 90, 90)
-    for line in ([f"{person.get('city', '')}, {person.get('country', '')}", person.get("email", ""),
-                  person.get("phone", "")],
-                 [(person.get("linkedin") or "").removeprefix("https://"),
-                  (person.get("github") or "").removeprefix("https://")]):
-        pdf.cell(0, 5, clean("  |  ".join(c for c in line if c and c.strip(", "))), new_x="LMARGIN", new_y="NEXT")
+    for line in header_lines(person):
+        pdf.cell(0, 5, clean(line), new_x="LMARGIN", new_y="NEXT")
     pdf.ln(8)
     pdf.set_text_color(0, 0, 0)
     pdf.set_font(family, "", 10.5)
@@ -188,4 +201,31 @@ def check_claims(body: str, job: dict | None = None, profile_text: str | None = 
                     continue  # "applying for the Atlas Fullstack Developer position"
                 seen.add(low)
                 out.append({"term": term, "sentence": sent[:160]})
+    return out + _overclaimed_languages(body, profile_text)
+
+
+FLUENCY = r"(fluen\w*|native|bilingual|proficien\w*|mother tongue)"
+# Profile levels that back up "fluent": C1/C2/native, or the wording LinkedIn-style profiles use.
+FLUENT_LEVEL = re.compile(r"^\s*(c1|c2)|native|mother tongue|bilingual|fluent|full (professional|working)|"
+                          r"professional working", re.I)
+
+
+def _overclaimed_languages(body: str, profile_text: str) -> list[dict]:
+    """"Fluent German" while the profile says german: B1. The term check above lets the word "German" through
+    because the profile names the language; the level is what the letter overstates."""
+    try:
+        langs = (yaml.safe_load(profile_text) or {}).get("languages") or {}
+    except (yaml.YAMLError, AttributeError):
+        return []
+    if not isinstance(langs, dict):
+        return []
+    weak = {str(k).lower(): str(v or "").strip() for k, v in langs.items() if not FLUENT_LEVEL.search(str(v or ""))}
+    out = []
+    for sent in _sentences(body):
+        if GAP_SENTENCE.search(sent):
+            continue
+        for lang, level in weak.items():
+            if re.search(rf"\b{FLUENCY}\b[^.]{{0,30}}\b{re.escape(lang)}\b|\b{re.escape(lang)}\b[^.]{{0,20}}\b{FLUENCY}",
+                         sent, re.I):
+                out.append({"term": f"{lang.capitalize()} ({level or 'no level'} in profile)", "sentence": sent[:160]})
     return out

@@ -65,3 +65,25 @@ def test_profile_skill_names_map_to_generic_aliases():
     assert skill_patterns("Drizzle ORM") == skill_patterns("orm")
     assert skill_patterns("C++") == skill_patterns("c++") != skill_patterns("c#")
     assert skill_patterns("Swift") == ["swift"]  # unknown names are searched as written
+
+
+def test_skill_words_need_word_boundaries():
+    _, why = prescore({"title": "Marketing Assistant",
+                       "description": "Excellent communication. You own CRM reactivation. The rest of the team helps."},
+                     [("excel", 3), ("react", 3), ("rest", 3)])
+    assert "skills:" not in " ".join(why)
+
+
+def test_student_roles_cost_points_without_student_levels(example_settings):
+    student = {"title": "Working Student Marketing", "description": ""}
+    assert "entry-level title" in prescore(student, [])[1]
+    settings.use(replace(example_settings, levels=("graduate", "junior")))
+    score, why = prescore(student, [])
+    assert "student role (not in your levels)" in why and score < prescore({"title": "Junior Marketing",
+                                                                            "description": ""}, [])[0]
+
+
+def test_manager_title_in_own_role_is_not_senior_for_non_it_users(example_settings):
+    settings.use(replace(example_settings, tech_only=False, roles=("content marketing",)))
+    assert "senior/mid level" not in prescore({"title": "Content Marketing Manager", "description": ""}, [])[1]
+    assert "senior/mid level" in prescore({"title": "Account Manager", "description": ""}, [])[1]

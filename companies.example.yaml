@@ -1,6 +1,10 @@
+# Template of your company watchlist. `uv run jobhunt init` copies it to companies.yaml, which is yours and never
+# committed (git ignores it), so updating the project never touches your list. Edit companies.yaml, not this file.
+#
 # Your company watchlist: employers whose own career sites are checked on every scrape (source "company_boards"),
 # read through their public job APIs. It starts empty: add the companies YOU want to work for, or ask Claude
-# ("add <company> to my watchlist"): it finds the career site's system and slug and checks the entry loads.
+# ("add <company> to my watchlist"): it finds the career site's system and slug and checks the entry loads
+# (`uv run jobhunt watchlist "<company>"`: jobs found, or the error; 0 jobs usually means a wrong slug).
 # Without a watchlist, LinkedIn and your country's job boards still cover your search.
 #
 # Format: one {name, ats, slug} entry per company.
@@ -10,6 +14,7 @@
 # | phenom (slug = "host|locale path") | oracle_hcm (slug = "host|siteNumber") | eightfold (slug = "host|domain")
 # | capgemini (slug = country code, e.g. de-de) | amazon | microsoft | google (slug = country).
 # workday slug = tenant/wdN/site (from https://<tenant>.<wdN>.myworkdayjobs.com/<site>).
+# The first scan after you add a company takes all its open jobs; later scans take its new ones (last 7 days).
 # An empty location / country means the configured one (settings country); boards are always searched for the
 # configured country and city, and rows from other countries are dropped.
 # Some career-site systems can't be read by script (Avature, iCIMS, TalentBrew, custom sites): add those by hand

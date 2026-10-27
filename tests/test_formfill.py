@@ -109,3 +109,13 @@ def test_missing_profile_says_how_to_start(monkeypatch, tmp_path):
     monkeypatch.setattr(formfill, "PROFILE", tmp_path / "profile.yaml")
     with pytest.raises(SystemExit, match="jobhunt init"):
         formfill.build_data(JOB)
+
+
+def test_fill_scripts_need_a_link_to_that_ats():
+    linkedin_only = {"source": "linkedin", "url": "https://www.linkedin.com/jobs/view/1", "employer_url": None}
+    assert not formfill.uses_ats(linkedin_only, "smartrecruiters")
+    assert formfill.uses_ats({**linkedin_only, "employer_url": "https://jobs.smartrecruiters.com/Acme/123"},
+                             "smartrecruiters")
+    assert formfill.uses_ats({"source": "workday", "url": "https://acme.wd3.myworkdayjobs.com/x"}, "workday")
+    assert formfill.uses_ats({"source": "sf_rmk", "url": "https://careers.acme.example/job/1/"}, "successfactors")
+    assert not formfill.uses_ats({"source": "greenhouse", "url": "https://boards.greenhouse.io/acme/jobs/1"}, "workday")

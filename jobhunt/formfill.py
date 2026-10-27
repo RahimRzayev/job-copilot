@@ -272,11 +272,33 @@ def build_data(job: dict, message: str = "", source_label: str = "", cv: str = "
     return data
 
 
-def write_script(conn, ats: str, job_id: int, message: str = "", source_label: str = "", cv: str = "main") -> Path:
+# How a job record shows that its application form runs on an ATS: the board it came from, or a link host.
+ATS_MARKERS = {
+    "smartrecruiters": ({"smartrecruiters"}, ("smartrecruiters.com",)),
+    "workday": ({"workday"}, ("myworkdayjobs.com", "myworkday.com")),
+    "successfactors": ({"sf_rmk", "sf_csb"}, ("successfactors.", "sapsf.")),
+}
+
+
+def uses_ats(job: dict, ats: str) -> bool:
+    """The job's form runs on this ATS as far as the record knows. A LinkedIn-only job has no such link, and a fill
+    script for the wrong system only fails on the page."""
+    sources, hosts = ATS_MARKERS.get(ats, (set(), ()))
+    links = " ".join(str(job.get(k) or "") for k in ("employer_url", "apply_url", "url")).lower()
+    return job.get("source") in sources or any(h in links for h in hosts)
+
+
+def write_script(conn, ats: str, job_id: int, message: str = "", source_label: str = "", cv: str = "main",
+                 force: bool = False) -> Path:
     template = TEMPLATES / f"{ats}.js"
     if not template.exists():
         raise SystemExit(f"no template for {ats}; available: {sorted(t.stem for t in TEMPLATES.glob('*.js'))}")
-    data = build_data(get(conn, job_id), message, source_label, cv)
+    job = get(conn, job_id)
+    if not force and not uses_ats(job, ats):
+        raise SystemExit(f"job #{job_id} has no {ats} link (employer_url: {job.get('employer_url') or 'none'}). If the "
+                         f"form you have open really is {ats}, save its address first: `uv run jobhunt set-employer "
+                         f"{job_id} <url>` (or pass --force when the address is a custom domain).")
+    data = build_data(job, message, source_label, cv)
     body = template.read_text()
     OUT.mkdir(parents=True, exist_ok=True)
     path = OUT / f"fill-{ats}-{job_id}.js"

@@ -58,9 +58,13 @@ FAMILIES = (
     ("data", "sql", "databases", "database", "postgresql", "mysql", "sqlite", "mongodb", "redis", "spark", "pandas",
      "numpy", "hadoop", "databricks", "power bi", "tableau", "excel", "etl", "analytics", "kafka"),
     ("testing", "qa", "selenium", "cypress", "playwright", "pytest", "junit", "jest", "postman"),
+    ("marketing", "seo", "sem", "google ads", "meta ads", "google analytics", "looker studio", "hubspot", "salesforce",
+     "crm", "mailchimp", "braze", "social media", "tiktok", "instagram", "copywriting", "wordpress", "shopify"),
+    ("design", "canva", "photoshop", "illustrator", "indesign", "figma", "premiere pro", "after effects"),
+    ("office", "excel", "powerpoint", "google sheets", "jira", "sap"),
 )
 
-# Terms prescore.ALIASES does not know yet (it has no Java, C#, etc.).
+# Terms prescore.ALIASES does not know yet (it has no Java, C#, etc.), and the tools of non-IT roles.
 EXTRA_TERMS = {
     "java": [r"\bjava\b"], "spring boot": [r"spring boot", r"\bspring\b"], "kotlin": [r"kotlin"],
     "c#": [r"\bc#", r"\.net\b", r"asp\.net"], "c++": [r"\bc\+\+"], "scala": [r"\bscala\b"],
@@ -68,6 +72,15 @@ EXTRA_TERMS = {
     "gcp": [r"\bgcp\b", r"google cloud"], "kubernetes": [r"kubernetes", r"\bk8s\b"], "terraform": [r"terraform"],
     "power bi": [r"power ?bi"], "tableau": [r"tableau"], "excel": [r"\bexcel\b"], "pandas": [r"pandas"],
     "hadoop": [r"hadoop"], "spark": [r"\bspark\b", r"pyspark"], "databricks": [r"databricks"],
+    "seo": [r"\bseo\b"], "sem": [r"\bsem\b"], "google ads": [r"google ads", r"adwords"],
+    "meta ads": [r"meta ads", r"facebook ads", r"meta business"], "google analytics": [r"google analytics", r"\bga4\b"],
+    "looker studio": [r"looker studio", r"data studio"], "hubspot": [r"hubspot"], "salesforce": [r"salesforce"],
+    "crm": [r"\bcrm\b"], "mailchimp": [r"mailchimp"], "braze": [r"\bbraze\b"], "tiktok": [r"tiktok"],
+    "instagram": [r"instagram"], "copywriting": [r"copywriting"], "wordpress": [r"wordpress"],
+    "shopify": [r"shopify"], "canva": [r"\bcanva\b"], "photoshop": [r"photoshop"],
+    "illustrator": [r"adobe illustrator", r"\billustrator\b"], "indesign": [r"indesign"], "figma": [r"\bfigma\b"],
+    "premiere pro": [r"premiere pro"], "after effects": [r"after effects"], "powerpoint": [r"powerpoint"],
+    "google sheets": [r"google sheets"], "jira": [r"\bjira\b"], "sap": [r"\bsap\b"],
 }
 TERMS = {**EXTRA_TERMS, **ALIASES}
 
@@ -110,12 +123,17 @@ def _facts(conn) -> dict[str, dict]:
 
 # ---------- the CV's Word original and its Skills section ----------
 
+def docx_candidates(pdf: Path, cv: str = "main", source_dir: Path | None = None) -> list[Path]:
+    """Where the Word original of a CV may be, in lookup order: <source_dir>/<variant>/<name>.docx (variants only),
+    <source_dir>/<name>.docx, or the .docx next to the PDF. <name> is the PDF's file name."""
+    source_dir = source_dir or SOURCE_DIR
+    return ([source_dir / cv / f"{pdf.stem}.docx"] if cv != "main" else []) + \
+        [source_dir / f"{pdf.stem}.docx", pdf.with_suffix(".docx")]
+
+
 def source_docx(cv: str = "main") -> Path:
-    """The Word original of a CV variant: SOURCE_DIR/<variant>/<name>.docx, SOURCE_DIR/<name>.docx, or the .docx
-    next to the PDF. The first candidate that exists, else where it is expected."""
-    pdf = formfill.cv_path(cv)
-    candidates = ([SOURCE_DIR / cv / f"{pdf.stem}.docx"] if cv != "main" else []) + \
-        [SOURCE_DIR / f"{pdf.stem}.docx", pdf.with_suffix(".docx")]
+    """The Word original of a CV variant: the first candidate that exists, else where it is expected."""
+    candidates = docx_candidates(formfill.cv_path(cv), cv)
     return next((c for c in candidates if c.exists()), candidates[-2])
 
 
@@ -288,11 +306,17 @@ def _word_available() -> bool:
 def _word_export_pdf(docx: Path, pdf: Path) -> None:
     """Export with Microsoft Word, the program most CV PDFs come from. Raises on failure."""
     name = docx.name
+    # try/on error: a failed save must still close the document, or every later export finds it open and fails.
     lines = [
         'tell application "Microsoft Word"',
         f'open POSIX file "{docx}"',
         "delay 2",
+        "try",
         f'save as document "{name}" file name "{pdf}" file format format PDF',
+        "on error msg",
+        f'close document "{name}" saving no',
+        "error msg",
+        "end try",
         f'close document "{name}" saving no',
         "end tell",
     ]
@@ -352,6 +376,23 @@ def pdf_exporter() -> str | None:
     return next((name for name, _ in exporters()), None)
 
 
+def test_export() -> str:
+    """Export a one-line document the way build() does: proves the exporter really works (macOS may first ask to let
+    the terminal control Word). Returns the exporter's name; raises RuntimeError with the reason."""
+    import docx  # python-docx (project dependency)
+    root = WORD_WORK if _word_available() else WORK
+    root.mkdir(parents=True, exist_ok=True)
+    work = Path(tempfile.mkdtemp(prefix="export-test-", dir=root))
+    try:
+        src = work / "export-test.docx"
+        page = docx.Document()
+        page.add_paragraph("Job Copilot export test")
+        page.save(src)
+        return export_pdf(src, work / "export-test.pdf")
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 def export_pdf(docx: Path, pdf: Path, only: str | None = None) -> str:
     """Export with the first exporter that works (or only `only`, so base and copy match). Returns its name."""
     errors = []
@@ -385,10 +426,20 @@ def build(conn, job: dict, cv: str = "main") -> dict:
     if not additions:
         return {**result, "built": False, "reason": NO_SKILL}
 
+    root = WORD_WORK if _word_available() else WORK
+    root.mkdir(parents=True, exist_ok=True)
+    # A fresh folder per build, removed afterwards: CV copies must not pile up in Word's container (one folder per
+    # job ever tailored did), and two projects building the same job id must not share one.
+    work = Path(tempfile.mkdtemp(prefix=f"{job['id']}-{cv}-", dir=root))
+    try:
+        return _build_in(work, result, additions, job, cv)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def _build_in(work: Path, result: dict, additions: list[dict], job: dict, cv: str) -> dict:
     import docx  # python-docx (project dependency)
 
-    work = (WORD_WORK if _word_available() else WORK) / f"{job['id']}-{cv}"
-    work.mkdir(parents=True, exist_ok=True)
     base_docx, tailored_docx = work / "base.docx", work / "tailored.docx"
     base_pdf, tailored_pdf = work / "base.pdf", work / "tailored.pdf"
     shutil.copyfile(result["source"], base_docx)  # Word and python-docx work on copies only

@@ -52,8 +52,10 @@ before anything else.
 - `jobhunt/formfill.py` + `browser/ats/*.js`: one-shot fill scripts for common ATSs (never submit).
   `jobhunt cover <id>` per-job cover letter PDF; `jobhunt/cvtailor.py` + `/tailor-cv` tailored CVs.
 - `jobhunt/queue.py` + `jobhunt queue` + `/shortlist`: apply-queue table; `/apply` keeps statuses current.
-- `companies.yaml` career-site watchlist, empty until the user adds companies. "Add <company> to my watchlist":
-  find its career-site system and slug (format at the top of the file), add the entry, then `uv run jobhunt doctor`.
+- `companies.yaml` career-site watchlist (the user's own, gitignored; `jobhunt init` creates it from
+  `companies.example.yaml`), empty until the user adds companies. "Add <company> to my watchlist":
+  find its career-site system and slug (format at the top of the file), add the entry, then
+  `uv run jobhunt watchlist "<company>"`: it must load and find jobs (0 jobs usually means a wrong slug).
 - `profile/` your CV + profile (gitignored). `data/` database and scratch files (gitignored). `reports/<date>.html` ranked report.
 - Skills: `/setup`, `/find-jobs`, `/linkedin-alerts`, `/tailor-cv`, `/apply`, `/shortlist`, `/answer-bank`, `/mail-check`.
 - Checks: `uv run jobhunt doctor`. Tests: `uv run pytest -q`.

@@ -314,6 +314,17 @@ def enrich_workday(http: Http, job: Job) -> Job:
     return job
 
 
+def enrich_smartrecruiters(http: Http, job: Job) -> Job:
+    """Description from the public posting API: the board list has titles and places only."""
+    slug = job.url.rstrip("/").split("/")[-2]
+    ad = http.get(f"https://api.smartrecruiters.com/v1/companies/{slug}/postings/{job.source_id}").json().get("jobAd") or {}
+    sections = ad.get("sections") or {}
+    parts = [html_to_text((sections.get(k) or {}).get("text") or "")
+             for k in ("jobDescription", "qualifications", "additionalInformation", "companyDescription")]
+    job.description = "\n\n".join(p for p in parts if p.strip())
+    return job
+
+
 # Some sites are served under a path (host/<path>, links /<path>/job/...), so a one-segment prefix is allowed.
 _RMK_TITLE = re.compile(r'<a href="((?:/[\w-]+)?/job/[^"]+/(\d+)/)" class="jobTitle-link">([^<]+)</a>')
 _RMK_LOC = re.compile(r'<td class="colLocation[^>]*>\s*<span class="jobLocation">\s*([^<]*?)\s*</span>', re.S)
@@ -522,8 +533,8 @@ BOARDS = {
 }
 
 
-def fetch(http: Http, companies: list[dict], workers: int = 8) -> tuple[list[Job], list[str]]:
-    """companies: [{name, ats, slug}]. Returns jobs + per-company error messages.
+def fetch_each(http: Http, companies: list[dict], workers: int = 8) -> list[tuple[list[Job], str | None]]:
+    """companies: [{name, ats, slug}]. Per company, in order: (jobs, error message or None).
     Boards live on different hosts, so `workers` fetch them in parallel, each with its own Http (polite delay per
     host): one by one, a watchlist of 200+ companies would take most of an hour. workers=1 uses `http` itself
     (tests)."""
@@ -540,10 +551,31 @@ def fetch(http: Http, companies: list[dict], workers: int = 8) -> tuple[list[Job
             if own is not http:
                 own.client.close()
 
-    jobs, errors = [], []
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-        for batch, err in pool.map(one, companies):
-            jobs.extend(batch)
-            if err:
-                errors.append(err)
+        return list(pool.map(one, companies))
+
+
+def fetch(http: Http, companies: list[dict], workers: int = 8) -> tuple[list[Job], list[str]]:
+    """Every company's jobs + per-company error messages."""
+    jobs, errors = [], []
+    for batch, err in fetch_each(http, companies, workers):
+        jobs.extend(batch)
+        if err:
+            errors.append(err)
     return jobs, errors
+
+
+def check(http: Http, companies: list[dict], workers: int = 8) -> list[dict]:
+    """`jobhunt watchlist`: does each board load, and how many jobs it has in the configured country. Some systems
+    (SmartRecruiters) answer a misspelled slug with an empty list instead of an error, so 0 jobs is a warning."""
+    rows = []
+    for c, (jobs, err) in zip(companies, fetch_each(http, companies, workers)):
+        row = {"name": c.get("name"), "ats": c.get("ats"), "slug": c.get("slug"), "jobs": len(jobs),
+               "ok": not err and bool(jobs)}
+        if err:
+            row["error"] = err
+        elif not jobs:
+            row["warning"] = (f"0 jobs in {settings.get().country or 'your country'}: the slug may be wrong, or the "
+                              "company has no openings there now; compare with its career site")
+        rows.append(row)
+    return rows

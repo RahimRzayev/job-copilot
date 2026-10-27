@@ -51,7 +51,7 @@ alert search page from step 1 run `browser_run_code_unsafe(filename=data/inbox/g
 
 ## 3. Check history + score
 1. Gmail history for these companies: `uv run jobhunt history match` (uses the history already imported; if the
-   last import is older than a few days, refresh it as in `/find-jobs` step 7 first).
+   last import is older than a few days, refresh it as in `/find-jobs` step 6 first).
 2. Read every job in `jobs.new` in detail (`uv run jobhunt show <id>`) — alert batches are small, so no auto-low.
    Score them exactly as `/find-jobs` §2 describes (same tiers, honest reasons, history red flags), write
    `data/inbox/scores-alerts.json`, `uv run jobhunt score data/inbox/scores-alerts.json`.

@@ -46,7 +46,15 @@ class Http:
         # for 16 hours.
         for attempt in range(5):
             self._wait()
-            resp = self.client.request(method, url, **kwargs)
+            try:
+                resp = self.client.request(method, url, **kwargs)
+            except httpx.TransportError:
+                # A read timeout or dropped connection on one page of a long scan: without a retry it ended the whole
+                # LinkedIn source with 0 jobs.
+                if attempt >= 2:
+                    raise
+                time.sleep(2 * (attempt + 1))
+                continue
             if resp.status_code == 429 and attempt < 4:
                 wait = resp.headers.get("Retry-After", "")
                 pause = min(float(wait), 60.0) if wait.isdigit() else 15 * (attempt + 1)

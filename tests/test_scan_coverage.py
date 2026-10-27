@@ -233,3 +233,45 @@ def test_phenom_keeps_home_country_rows_and_reads_the_job_page():
     assert [(j.title, j.location, j.url) for j in jobs] == [
         ("Intern in Finance", "Warsaw", "https://careers.initech.example/gb/en/job/7")]
     assert "Students welcome" in jobs[0].description and jobs[0].posted_at.endswith("+00:00")
+
+
+def test_watchlist_check_flags_errors_and_empty_boards(monkeypatch):
+    """A misspelled SmartRecruiters slug answers with an empty list, not an error: 0 jobs must be a warning."""
+    from jobhunt.normalize import Job
+    from jobhunt.sources import ats_boards
+
+    def fake(http, company, slug):
+        if slug == "broken":
+            raise RuntimeError("404 Not Found")
+        return [] if slug == "typo" else [Job(source="company_boards", source_id="1", title="Intern", company=company,
+                                              url="https://x")]
+
+    monkeypatch.setitem(ats_boards.BOARDS, "fake", fake)
+    rows = ats_boards.check(None, [{"name": "Acme", "ats": "fake", "slug": "acme"},
+                                   {"name": "Globex", "ats": "fake", "slug": "typo"},
+                                   {"name": "Initech", "ats": "fake", "slug": "broken"}], workers=1)
+    assert [(r["name"], r["ok"], r["jobs"]) for r in rows] == [("Acme", True, 1), ("Globex", False, 0),
+                                                               ("Initech", False, 0)]
+    assert "slug may be wrong" in rows[1]["warning"] and "404" in rows[2]["error"]
+
+
+def test_smartrecruiters_watchlist_jobs_get_a_description():
+    import httpx
+
+    from jobhunt.normalize import Job
+    from jobhunt.sources import ats_boards
+    from jobhunt.sources.base import Http
+
+    def handler(request):
+        assert request.url.path == "/v1/companies/Acme/postings/123"
+        return httpx.Response(200, json={"jobAd": {"sections": {
+            "jobDescription": {"text": "<p>Plan social media posts.</p>"},
+            "qualifications": {"text": "<ul><li>Fluent German</li></ul>"}}}})
+
+    http = Http(delay=0)
+    http.client = httpx.Client(transport=httpx.MockTransport(handler))
+    job = Job(source="smartrecruiters", source_id="123", title="Marketing Intern", company="Acme",
+              url="https://jobs.smartrecruiters.com/Acme/123")
+    text = ats_boards.enrich_smartrecruiters(http, job).description
+    assert "social media" in text and "Fluent German" in text
+    assert pipeline.ENRICHERS["smartrecruiters"] is ats_boards.enrich_smartrecruiters

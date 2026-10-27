@@ -1,8 +1,9 @@
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-from jobhunt import cover, formfill
+from jobhunt import cover, formfill, settings
 from jobhunt.cover import check_claims
 from jobhunt.db import connect
 
@@ -80,3 +81,24 @@ def test_language_level_and_degree_claims_need_the_profile():
 
 def test_file_names_keep_letters_readable():
     assert cover._ascii("Søren Weiß Łukasz Əliyev") == "Soren Weiss Lukasz Eliyev"
+
+
+def test_header_uses_the_job_inbox_and_skips_empty_parts(example_settings):
+    person = {"city": "Warsaw", "email": "private@example.com", "phone": "+48 500 600 700",
+              "linkedin": "https://linkedin.com/in/alex", "portfolio": "https://alex.example"}
+    assert cover.header_lines(person) == ["Warsaw, Poland  |  jobs.example@gmail.com  |  +48 500 600 700",
+                                          "linkedin.com/in/alex  |  alex.example"]
+    settings.use(replace(example_settings, country="", job_email=""))
+    assert cover.header_lines({"city": "Warsaw", "email": "a@example.com"}) == ["Warsaw  |  a@example.com", ""]
+
+
+def test_core_font_fallback_drops_accents_instead_of_question_marks():
+    assert cover._latin1("Łucja zażółć Əliyev – café") == "Lucja zazólc Eliyev - café"
+
+
+def test_fluent_claims_need_the_profile_level():
+    prof = "languages: {english: C1, german: B1, spanish: native}"
+    terms = [x["term"] for x in check_claims("I am fluent in English and German. Spanish is my native language.",
+                                             {}, prof)]
+    assert terms == ["German (B1 in profile)"]
+    assert check_claims("I am learning German, now at B1 level.", {}, prof) == []

@@ -85,7 +85,7 @@ search:
   languages: ["english"]        # languages you can WORK in; jobs requiring any other language are dropped
   max_years: 2                  # drop jobs that require more years of experience than this
   roles: []                     # the roles YOU want, most important first: ["data analyst", "marketing assistant"]
-  levels: []                    # any of: internship, working student, graduate, junior, mid
+  levels: []                    # any of: internship, working student, trainee, graduate, junior, mid
   tech_only: false              # true = IT roles only: drops sales/HR/legal/finance titles, adds IT-only job boards
   exclude_titles: []            # title words you never want: ["sales", "call center"]
   keywords: []                  # optional search words tried first; empty = words for your levels

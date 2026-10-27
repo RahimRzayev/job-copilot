@@ -328,8 +328,9 @@ def test_other_country_language_rules():
     assert check_listing(gh(location="Berlin", languages=["Polish:B2"]), 24, NOW) == "Polish required (listing)"
     # "Germany" is not the German language
     assert check_details(gh(location="Berlin", description="Fluent English, based in Germany. Python.")) is None
-    assert language_flags("Fluent German required. Fluent Polish required.") == ["Polish required",
-                                                                                   "German required"]
+    # the search country's own language first
+    assert language_flags("Fluent German required. Fluent Polish required.") == ["German required",
+                                                                                   "Polish required"]
     settings.use(replace(BERLIN, languages=("english", "german")))
     assert check_details(gh(location="Berlin", description="Fluent German required. Python.")) is None
     assert check_listing(gh(location="Berlin", languages=["Deutsch: C1"]), 24, NOW) is None
@@ -378,3 +379,58 @@ def test_postings_written_in_other_big_languages_are_dropped_for_english_speaker
     assert check_details(gh(location="Berlin", description=french)) == "description in French"
     settings.use(replace(BERLIN, languages=("english", "german")))
     assert check_details(gh(location="Berlin", description=german)) is None
+
+
+def test_german_requirement_wordings():
+    settings.use(BERLIN)
+    for text in ("Fluency in English and German.", "German language skills are a must.", "Good German skills.",
+                 "Strong German communication skills.", "Business-level German is essential.",
+                 "Verhandlungssichere Deutschkenntnisse.", "Sehr gute Deutschkenntnisse.", "You are a German speaker."):
+        assert check_details(gh(location="Berlin", description=f"Marketing role. {text}")) \
+            == "German required (description)", text
+    for text in ("Knowledge of the German market.", "German is not required.", "No German required.",
+                 "Influence on the German market.", "German is a plus.", "Deutschkenntnisse sind von Vorteil.",
+                 "Good German skills are a bonus.", "A company with strong German roots."):
+        assert check_details(gh(location="Berlin", description=f"Marketing role. {text}")) is None, text
+
+
+def test_other_cities_match_places_not_word_starts():
+    s = replace(BERLIN, other_cities=("essen", "hamburg", "munich"))
+    settings.use(s)
+    remote = dict(location="Germany", remote=True)
+    assert work_mode_reason(job(**remote, description="Essential: Canva. This is a hybrid role.")) is None
+    assert work_mode_reason(job(**remote, description="Hybrid: 2 days a week in our Essen office.")) \
+        .startswith("hybrid/on-site outside Berlin (essen")
+    assert work_mode_reason(job(**remote, description="Location: Hamburg. Hybrid work model.")) \
+        .startswith("hybrid/on-site outside Berlin (hamburg")
+    assert s.other_city("hessen, germany") is None and s.other_city("essen, germany") == "essen"
+
+
+def test_manager_titles_in_the_users_own_non_it_roles():
+    marketing = replace(BERLIN, tech_only=False, roles=("social media", "content marketing"))
+    settings.use(marketing)
+    for title in ("Marketing Manager (m/w/d)", "Social Media Manager", "Content Manager (all genders)"):
+        assert check_listing(gh(title=title, location="Berlin"), 24, NOW, mode="full") is None, title
+    settings.use(replace(marketing, roles=("marketing assistant", "social media")))
+    for title in ("Senior Marketing Manager", "Account Manager", "Head of Content Marketing", "Assistant Store Manager"):
+        assert check_listing(gh(title=title, location="Berlin"), 24, NOW, mode="full") == "senior title", title
+    settings.use(replace(marketing, tech_only=True, roles=("software engineer",)))
+    assert check_listing(gh(title="Software Engineering Manager", location="Berlin"), 24, NOW, mode="full") \
+        == "senior title"
+
+
+def test_titles_shared_by_two_languages_are_labelled_with_the_local_one():
+    settings.use(replace(BERLIN, tech_only=False))
+    assert check_listing(gh(title="Referent Marketing (m/w/d)", location="Berlin"), 24, NOW) == "German title"
+
+
+def test_language_speaking_titles():
+    settings.use(replace(BERLIN, tech_only=False, roles=("performance marketing",)))
+    assert check_listing(gh(title="German Speaking Performance Marketing Manager", location="Berlin"), 24, NOW) \
+        == "German required (title)"
+
+
+def test_a_desirable_heading_does_not_hide_required_years():
+    from jobhunt.prefilter import required_years
+    text = "Desirable:\n - Practical .NET experience\nExperience\n - Minimum 5 years of web development experience"
+    assert required_years(text) == 5

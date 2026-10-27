@@ -101,7 +101,8 @@ interrupting you. One short `--note` each time:
    the PDF it prints (never a .txt). Use the same text for message boxes (shorten to the box's limit).
 7. **One-shot fill scripts** (SmartRecruiters, Workday, SuccessFactors): run them AFTER `cover` so they attach the
    letter. `uv run jobhunt formfill <smartrecruiters|workday|successfactors> <id> --message-file
-   data/inbox/msg-<id>.txt [--source "LinkedIn"] [--cv <variant>]`, then
+   data/inbox/msg-<id>.txt [--source "LinkedIn"] [--cv <variant>]` (it refuses a job whose record has no link to that
+   ATS: save the form's address with `set-employer` first; `--force` only for a custom-domain career site), then
    `mcp__playwright__browser_run_code_unsafe(filename=<script>)` once the form is open (SmartRecruiters: the
    oneclick-ui page; Workday: signed in, "Apply Manually", on "My Information"; SuccessFactors: "Apply for <job>").
    They return a per-field `log` (ok/skip/FAIL), `answers` / `all_fields` (every value they chose or found) and the

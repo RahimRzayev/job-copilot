@@ -34,9 +34,10 @@ form questions, driving the browser when a form is unusual).
 5. **Claude scores** each posting 0-100 against your profile and writes what matches, what's missing and red flags.
 6. **Still open?** (`jobhunt verify`) checks the job board and the employer's own site, and notes employer-side
    requirements the board didn't show.
-7. **Shortlist → `/apply`.** Fill scripts in `browser/ats/` cover Workday, SuccessFactors and SmartRecruiters;
-   other forms are filled step by step. Answers come from your profile and the answer bank; unknown questions are
-   asked once and saved.
+7. **Shortlist → `/tailor-cv` → `/apply`.** `/tailor-cv` adds skills you confirm to a copy of your CV's Word file
+   (`jobhunt/cvtailor.py`); `/apply` writes a cover letter PDF per job from profile facts only (`jobhunt/cover.py`).
+   Fill scripts in `browser/ats/` cover Workday, SuccessFactors and SmartRecruiters; other forms are filled step by
+   step. Answers come from your profile and the answer bank; unknown questions are asked once and saved.
 8. **Inbox tracking** (`jobhunt/mailcheck.py`, `jobhunt/history.py`) reads the job inbox and moves applications to
    rejected / interview / offer.
 
@@ -55,7 +56,8 @@ yourself, e.g. LinkedIn Easy Apply), `closed` (posting gone).
 | `data/jobhunt.db` | jobs, applications, answer bank, inbox history | no |
 | `data/inbox/` | scratch files: scans, tailored CVs, cover letters | no |
 | `reports/` | daily HTML reports | no |
-| `companies.yaml` | career-site watchlist (starts empty, yours to fill) | yes |
+| `companies.yaml` | your career-site watchlist (starts empty, yours to fill) | no |
+| `companies.example.yaml` | the watchlist format and template | yes |
 | `setup/starter-questions.yaml` | questions `/setup` asks once | yes |
 
 ## Adding a job board for your country

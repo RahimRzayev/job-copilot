@@ -6,13 +6,16 @@
 # {country}, {city} and {currency} are filled in from the `search:` section of your profile.
 #
 # type: text | yesno | number | choice    options: suggestions shown during setup (you can always type your own)
+# when: ask only if it fits you. internship = settings levels include internship, working student or trainee;
+#       student = levels include student roles or your education is in progress; tech = settings tech_only is true.
 # Skip any question you prefer not to answer now; /apply will ask it when a form needs it.
 
 groups:
   - name: Salary
     questions:
-      - {q: "Expected salary for an internship ({currency} gross per month)?", type: number, tags: [salary]}
-      - {q: "Expected salary for a junior position ({currency} gross per month)?", type: number, tags: [salary]}
+      - {q: "Expected salary for an internship ({currency} gross per month)?", type: number, tags: [salary],
+         when: internship}
+      - {q: "Expected salary for a full-time position ({currency} gross per month)?", type: number, tags: [salary]}
       - {q: "What is your desired annual salary (gross per year)?", type: text, tags: [salary],
          hint: "Usually 12 x your monthly figure. Include the currency."}
       - {q: "Expected hourly rate ({currency} gross per hour) for hourly or freelance contracts?", type: number, tags: [salary]}
@@ -25,9 +28,10 @@ groups:
       - {q: "What is your earliest start date?", type: text, tags: [availability], options: ["Immediately", "In 2 weeks", "In 1 month"]}
       - {q: "What is your notice period?", type: text, tags: [availability], options: ["None", "2 weeks", "1 month", "3 months"]}
       - {q: "How many hours per week are you available to work?", type: number, tags: [availability], options: ["40", "32", "20"]}
-      - {q: "What length of internship are you available for?", type: choice, tags: [availability], options: ["3 months", "6 months", "12 months", "Any"]}
+      - {q: "What length of internship are you available for?", type: choice, tags: [availability], options: ["3 months", "6 months", "12 months", "Any"],
+         when: internship}
       - {q: "Are you available for shift work, including weekends and public holidays?", type: yesno, tags: [availability, shifts]}
-      - {q: "Are you available for a periodic on-call rotation?", type: yesno, tags: [availability, on-call]}
+      - {q: "Are you available for a periodic on-call rotation?", type: yesno, tags: [availability, on-call], when: tech}
       - {q: "Are you willing to travel for work (business trips)?", type: yesno, tags: [availability, travel]}
 
   - name: Work authorization
@@ -87,9 +91,10 @@ groups:
       - {q: "How did you hear about this position? (default rule)", type: text, tags: [source],
          hint: "e.g. 'the job board I found it on; LinkedIn when found on LinkedIn'"}
       - {q: "Tell us about yourself / why are you interested in this field? (3-5 sentences)", type: text, tags: [about]}
-      - {q: "What's the most impactful thing you've built? What was your specific contribution?", type: text, tags: [projects]}
+      - {q: "What piece of work are you proudest of (a project, campaign, analysis, product...)? What was your own part?", type: text, tags: [projects]}
       - {q: "How do you use AI tools in your work or studies? Give examples.", type: text, tags: [ai, skill]}
       - {q: "What is your <language> level on a Beginner / Intermediate / Advanced / Fluent scale?", type: choice, tags: [language],
          options: ["Fluent", "Advanced", "Intermediate", "Beginner"],
          hint: "Ask once per language in settings `languages` (and per profile language), replacing <language>."}
-      - {q: "Are you currently a student? If yes, full-time or part-time, and do you keep student status for the whole internship?", type: text, tags: [education]}
+      - {q: "Are you currently a student? If yes, full-time or part-time, and do you keep student status for the whole internship?", type: text, tags: [education],
+         when: student}

@@ -22,9 +22,14 @@ filters at the source). The narrow search is still available with `--mode narrow
    - LinkedIn guest search with NO keyword for your city + the whole country. The guest search ignores the
      remote/level/job-type filters and stops at ~990 results; a search that reaches the limit is re-run per keyword
      (settings `keywords`, entry-level words first) with no time limit. `fetched["linkedin searches"]`
-     `slices skipped` must stay empty.
+     `slices skipped` must stay empty; `slices at limit` > 0 means a keyword slice also hit the ~990 cap, so some
+     jobs in it were not seen: say so in the report. LinkedIn takes 20+ min; it prints one progress line per search
+     to stderr (`linkedin: Poland · 'junior': 412 jobs`).
+     `known` counts listings already in the database or seen twice in this run.
    - Company career boards from `companies.yaml` (Workday, Greenhouse, SmartRecruiters, SuccessFactors, Oracle,
-     Eightfold, Phenom and a few big-tech custom boards; fetched 8 at a time). Their jobs are the employer's own
+     Eightfold, Phenom and a few big-tech custom boards; fetched 8 at a time; a newly added company's first scan
+     takes all its open jobs, listed in `fetched["new watchlist companies (all open jobs)"]`, later scans the last
+     7 days). Their jobs are the employer's own
      posting, so `employer_url` is set and `/apply` goes straight to the form.
    - Country boards, only when enabled for your country (Poland: englishjobs.pl — English-only jobs in your city +
      remote in the country, plus its whole `student` tag when settings `levels` include students; with settings
@@ -44,23 +49,25 @@ filters at the source). The narrow search is still available with `--mode narrow
 
 If a source errors, report it and continue; never stop the run for one source.
 
-4. **Older internships/graduate programmes**: `uv run jobhunt refilter --hours 168` re-checks filtered jobs with
+3. **Older internships/graduate programmes**: `uv run jobhunt refilter --hours 168` re-checks filtered jobs with
    current rules. The longer window applies ONLY to internship/graduate/trainee/student titles; other jobs keep the
    scan window (`--all-roles` revives everything, mostly noise).
    Duplicates (same board id, or same company + title in another city/board) are dropped at scrape time as
    `duplicate of #id`; `uv run jobhunt dedupe [--dry-run]` cleans ones already stored.
    Then `uv run jobhunt enrich --limit 300`: fetches descriptions for every `new` job still missing one (refilter
    revivals, ingested browser rows) and re-runs the language/years rules, so no job reaches scoring with an empty text.
-5. **Pracuj employer links** — only when `pracuj` is enabled. Pracuj shows employer ATS links only on offer pages,
+   Repeat it while new jobs still lack a description (`uv run jobhunt list --status new` shows them); a big first
+   scan can need two or three runs.
+4. **Pracuj employer links** — only when `pracuj` is enabled. Pracuj shows employer ATS links only on offer pages,
    which live on `www.pracuj.pl`. Open a **`https://www.pracuj.pl/`** tab first (from `it.pracuj.pl` every fetch fails
    cross-origin), then run `uv run jobhunt browser-script pracuj-details` (every new Pracuj job without an employer
    link) and pass `data/inbox/pracuj-details-fn.js` as `function` to `browser_evaluate`,
    `filename: data/inbox/pracuj-details.json`, then `uv run jobhunt update-details data/inbox/pracuj-details.json`.
-6. **Still open?** `uv run jobhunt verify` — checks the board AND the employer ATS (SmartRecruiters `active`,
+5. **Still open?** `uv run jobhunt verify` — checks the board AND the employer ATS (SmartRecruiters `active`,
    Workday canApply, Greenhouse/Lever 404, Ashby board, "expired/closed" page text). Closed jobs get status `closed`
    and are never scored. Report how many were closed and why. Default scope = new + shortlisted + scored >= 55
    (re-checking every scored job takes long and locks the DB); pass ids for anything else.
-7. **Gmail history (new mail only)**: `uv run jobhunt history query --days 14` → open that Gmail search in the job
+6. **Gmail history (new mail only)**: `uv run jobhunt history query --days 14` → open that Gmail search in the job
    Gmail (settings `job_email`; URL-encode the query after `https://mail.google.com/mail/u/0/#search/`, and use
    `/u/<job_email>/` if it is not the browser's first account), run `browser/gmail_rows.js`
    (`filename: data/inbox/gmail-new.json`), `uv run jobhunt history import data/inbox/gmail-new.json`,
@@ -113,7 +120,7 @@ from years/level, not from the pay. Saved amounts are only for "expected salary"
 
 Be honest: inflated scores waste the user's applications. A reason must name the concrete fit or blocker.
 
-`history_note` / `history_warn` from step 7 must shape the score: same role already applied or a test/interview
+`history_note` / `history_warn` from step 6 must shape the score: same role already applied or a test/interview
 pending → put it in `red_flags` and tell the user (they may need to finish a test instead of re-applying; some ATS
 block a re-application while one is pending). Recent rejections from the company → mention them.
 

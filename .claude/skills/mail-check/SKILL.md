@@ -31,7 +31,8 @@ history and syncs job statuses: applied → interview / rejected / offer). Bucke
   fresh codes. Stays unread.
 - `job_info` — application received, rejections, status updates, account created, old codes → mark read.
 - `noise` — LinkedIn/board job alerts, newsletters, promotions, receipts, social → mark read.
-- `unknown` — the rules know English and Polish wording; mail in other languages mostly lands here. YOU decide each
+- `unknown` — the rules know English, Polish, German, French, Spanish, Dutch, Italian and Portuguese wording; mail
+  in other languages mostly lands here. YOU decide each
   one from subject + `body`, and for a rejection / interview / offer about a tracked job also set its status
   (`uv run jobhunt status <id> --set rejected|interview|offer`) (already in the rows file; `has_body` in the plan output).
   Rows without a body (fetch error): open the print view (`/mail/u/0/?ik=<GLOBALS[9]>&view=pt&search=all&th=<id>`

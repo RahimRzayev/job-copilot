@@ -32,6 +32,59 @@ LOG_DIR = ROOT / "data" / "inbox"
 # questionnaire to finish your application") must not be marked read as a confirmation.
 ASK_EXTRA = r"|(wypełnij|uzupełnij|rozwiąż) (\w+ )?(kwestionariusz|formularz|test|zadani)|dokończ\w* (\w+ )?aplikacj|" \
             r"complete (the|a|our|this|short) (\w+ )?questionnaire"
+# Direct requests in German, French, Spanish, Dutch, Italian and Portuguese ("please send / could you / missing
+# documents / complete your application / fill in the questionnaire"). The "do not reply" footers ("Bitte antworten Sie
+# nicht", "Veuillez ne pas répondre", "Ti preghiamo di non rispondere", "Por favor, não responda") are excluded.
+ASK_INTL = (
+    r"|bitte (\w+ )?(füllen|senden|schicken|laden|reichen|ergänzen|bestätigen|antworten|wählen|vervollständigen|"
+    r"beantworten|teilen) (sie|du)\b(?! (nicht|uns nicht))|bitte melden sie sich|melden sie sich bitte|"
+    r"(könnten|können) (sie|du) (uns |mir )?(bitte )?(\w+ ){0,4}(mitteilen|senden|schicken|bestätigen|nennen|zusenden|"
+    r"zukommen lassen)|rückfrage|fehlende (unterlagen|angaben|informationen|dokumente)|unterlagen (nachreichen|fehlen)|"
+    r"vervollständigen sie (ihre|deine) bewerbung|fragebogen (aus)?(zu )?füllen|"
+    r"merci de (bien vouloir )?(compléter|remplir|nous (envoyer|transmettre|faire parvenir|indiquer|confirmer|"
+    r"communiquer)|répondre|choisir|confirmer|sélectionner)|veuillez (\w+ )?(compléter|remplir|nous (envoyer|transmettre|"
+    r"faire parvenir|indiquer|confirmer|communiquer)|choisir|sélectionner|confirmer|télécharger)|pourriez-vous|"
+    r"pouvez-vous (nous )?(\w+ )?(envoyer|transmettre|indiquer|confirmer|communiquer)|(documents?|pièces?) manquante?s?|"
+    r"informations? manquantes?|compl[ée]te[rz]? (votre candidature|le questionnaire|ce questionnaire|notre questionnaire)|"
+    r"por favor,? (completa|complete|env[ií]a|env[ií]e|env[ií]anos|confirma|confirme|responde|responda|elige|elija|"
+    r"selecciona|seleccione|rellena|rellene|sube|suba|ind[ií]canos|ind[ií]quenos)\b|(podr[ií]as|podr[ií]a|puedes|puede) "
+    r"(usted )?(\w+ )?(indicarnos|enviarnos|confirmarnos|decirnos|compartirnos)|documentos? (faltantes|pendientes)|"
+    r"informaci[oó]n (faltante|pendiente)|completa (tu|su) (candidatura|solicitud)|completa (el|este|nuestro) cuestionario|"
+    r"(wil|kun|kunt|zou|wilt) (je|jij|u) (\w+ ){0,5}(invullen|sturen|opsturen|toesturen|bevestigen|aanleveren|laten weten|"
+    r"reageren|kiezen|uploaden|doorgeven)|gelieve (\w+ )?(in te vullen|te sturen|te bevestigen|te reageren|te kiezen|"
+    r"te uploaden)|ontbrekende (documenten|gegevens|informatie|stukken)|rond (je|uw) sollicitatie af|"
+    r"vragenlijst in te vullen|vul (de|deze|onze) vragenlijst in|"
+    r"(per favore|ti preghiamo di|la preghiamo di|si prega di|ti chiediamo di|le chiediamo di),? (?!non\b)(\w+ )?"
+    r"(compila|completa|compilare|completare|invia|inviare|inviarci|conferma|confermare|rispondi|rispondere|scegli|"
+    r"scegliere|seleziona|selezionare|carica|caricare|indica|indicarci)\b|potresti (\w+ )?(inviarci|indicarci|"
+    r"confermarci|comunicarci|dirci)|potrebbe (\w+ )?(inviarci|indicarci|confermarci|comunicarci)|documenti mancanti|"
+    r"informazioni mancanti|completa la tua candidatura|compila (il|questo|il nostro) questionario|"
+    r"(por favor|pedimos que|solicitamos que),? (?!(n[aã]o|no)\b)(\w+ )?(preencha|complete|envie|nos envie|confirme|"
+    r"responda|escolha|selecione|carregue|indique|informe)\b|(poderia|podes|pode) (\w+ )?(nos )?(enviar|informar|confirmar|"
+    r"indicar|dizer)-?(nos)?|documentos? (pendentes|em falta|faltantes)|informa[cç][oõ]es (pendentes|em falta)|"
+    r"(conclua|finalize) (a )?(sua|tua) candidatura|preencha (o|este|nosso) question[aá]rio|"
+    r"date limite|fecha l[ií]mite|uiterste datum|termine ultimo|entro e non oltre|prazo (final|limite)|data limite")
+# Interview, test, offer, invitation and "next steps" wording in the same languages (the "keep" side).
+KEEP_INTL = history.wordstart(history.INTERVIEW_INTL + history.TEST_INTL + (
+    r"|einladung|nächste[nr]? schritte?|"
+    r"(haben sie|hast du) (noch )?interesse|freuen uns auf (ihre|deine) (antwort|rückmeldung)|verfügbarkeit|"
+    r"vertragsangebot|"
+    r"bis (montag|dienstag|mittwoch|donnerstag|freitag)|"
+    r"invitation (à|a|pour)|convocation|prochaines? étapes?|disponibilit|êtes-vous (toujours )?intéressée?|"
+    r"dans l['’]attente de (votre|ta) (réponse|retour)|promesse d['’]embauche|"
+    r"avant (lundi|mardi|mercredi|jeudi|vendredi)|"
+    r"invitaci[oó]n|convocatoria|pr[oó]ximos pasos|siguientes pasos|(sigues|sigue) interesad[oa]|"
+    r"quedamos a la espera de (tu|su) respuesta|carta (de )?oferta|"
+    r"antes del? (lunes|martes|mi[eé]rcoles|jueves|viernes)|"
+    r"uitnodiging|volgende stap(pen)?|beschikbaarheid|"
+    r"(ben je|bent u) (nog )?(ge[iï]nteresseerd)|(kijken|zien) (we )?(uit )?naar (je|jouw|uw) (reactie|antwoord)|"
+    r"contractvoorstel|v[oó][oó]r (maandag|dinsdag|woensdag|donderdag|vrijdag)|"
+    r"invito (a|al|per)|prossimi passi|prossime fasi|(sei|è) ancora interessat[oa]|"
+    r"(attendiamo|in attesa di) (un )?(tuo|suo) (riscontro|risposta)|"
+    r"proposta di assunzione|lettera di offerta|entro (lunedì|martedì|mercoledì|giovedì|venerdì)|"
+    r"convite|pr[oó]ximos passos|pr[oó]ximas etapas|ainda (tem|está) interess|"
+    r"aguardamos (o seu|seu|a sua|sua|o teu|teu) (retorno|resposta|contato)|"
+    r"proposta de (emprego|trabalho|contrata[cç][aã]o)|at[eé] (segunda|ter[cç]a|quarta|quinta|sexta)"))
 
 # Order matters: the first matching group wins. "keep" is checked before anything that would mark read.
 KEEP = re.compile(
@@ -45,7 +98,8 @@ KEEP = re.compile(
     r"documents? (required|needed)|deadline|by (monday|tuesday|wednesday|thursday|friday|saturday|sunday)|"
     r"reference check|background check|onboarding|could you (possibly |please )?(specify|tell|send|confirm|share|let)|"
     r"can you (please )?(specify|tell|send|confirm|share|let)|would you be available|are you (still )?interested|"
-    r"looking forward to your (reply|response|answer)" + ASK_EXTRA + ")", re.I)
+    r"looking forward to your (reply|response|answer)" + ASK_EXTRA + history.wordstart(ASK_INTL) + KEEP_INTL + ")",
+    re.I)
 NOISE_SENDERS = re.compile(
     r"(jobalerts-noreply@linkedin|jobs-listings@linkedin|messages-noreply@linkedin|notifications-noreply@linkedin|"
     r"jobs-noreply@linkedin|news@|newsletter|marketing|promo|offers@|deals@|@email\.|@e\.|@mail\.|@news\.|"
@@ -59,7 +113,21 @@ NOISE_TEXT = re.compile(
     r"is hiring|people you may know|viewed your profile|new connection|endorse|congratulate|trending|"
     r"tips|career advice|learning|course|certificate earned|survey|feedback on|rate your|how did we do|"
     r"shared some google account data|help us match you|keep your (details|profile) up to date|"
-    r"share your (recruitment|candidate) experience)", re.I)
+    r"share your (recruitment|candidate) experience|"
+    # German, French, Spanish, Dutch, Italian, Portuguese: unsubscribe footers, promotions, invoices/orders, surveys,
+    # "X is hiring", profile views
+    r"abmelden|abbestellen|désabonner|désinscri|darse de baja|cancelar (la )?suscripci[oó]n|afmelden|uitschrijven|"
+    r"disiscriv|annulla(re)? l['’]iscrizione|cancelar (a )?(inscri[cç][aã]o|assinatura)|descadastr|"
+    r"rabatt|gutschein|remise|réduction|soldes|code promo|descuento|rebajas|korting|uitverkoop|sconto|saldi|desconto|"
+    r"promo[cç][aã]o|rechnung|facture|factura|factuur|fattura|fatura|nota fiscal|(ihre|deine) bestellung|votre commande|"
+    r"(tu|su) pedido|(je|uw) bestelling|il tuo ordine|(seu|sua) (pedido|encomenda)|"
+    r"umfrage|sondage|encuesta|enquête|questionario di (gradimento|soddisfazione)|pesquisa de satisfa[cç][aã]o|"
+    r"(teilen sie|teile) (uns )?(ihre|deine) (erfahrung|meinung)|partagez votre (expérience|avis)|comparte tu "
+    r"(experiencia|opini[oó]n)|deel (je|uw) (ervaring|mening)|condividi la tua esperienza|compartilhe (a )?sua "
+    r"(experi[eê]ncia|opini[aã]o)|"
+    r"\bstellt ein\b|\brecrute\b|est[aá] contratando|sta assumendo|"
+    r"(ihr|dein) profil angesehen|a consulté votre profil|ha visto tu perfil|heeft (je|uw) profiel bekeken|"
+    r"ha visualizzato il tuo profilo|visualizou (o )?seu perfil)", re.I)
 JOB_INFO_KINDS = {"applied", "rejection", "status", "account"}
 # With a full body, confirmations mention "interview", "next steps", "availability" while describing the process
 # ("we'll be in touch ... if we'd like to meet you for an interview"). For confirmation-type mail only a direct
@@ -68,16 +136,59 @@ ASKS = re.compile(
     r"(please (complete|provide|send|submit|reply|respond|choose|select|upload|fill)|action (required|needed)|"
     r"complete your application|missing (information|documents?)|documents? (required|needed)|"
     r"could you (possibly |please )?(specify|tell|send|confirm|share|let)|can you (please )?(specify|tell|send|confirm|"
-    r"share|let)|would you be available|are you (still )?interested|deadline" + ASK_EXTRA + ")", re.I)
-# Confirmations the history classifier doesn't name (Polish thanks, account welcomes).
+    r"share|let)|would you be available|are you (still )?interested|deadline" + ASK_EXTRA + history.wordstart(ASK_INTL) +
+    ")", re.I)
+# Confirmations the history classifier doesn't name (Polish and other corporate "we thank you for", account welcomes).
 CONFIRMATION = re.compile(
     r"(podziękowanie za (zainteresowanie|aplikacj|przesłan)|dziękujemy za|aplikacj\w* (na|w odpowiedzi)|"
     r"creating an account|account (has been )?(created|activated)|welcome to (the )?\w+ (careers?|talent|candidate)|"
-    r"registration (complete|successful)|profile (created|updated)|talent community)", re.I)
+    r"registration (complete|successful)|profile (created|updated)|talent community|"
+    # German, French, Spanish, Dutch, Italian, Portuguese
+    r"wir bedanken uns|vielen dank für (ihre|deine|ihr|dein) (bewerbung|interesse)|nous vous remercions|merci (pour|de) "
+    r"(votre|ta) (candidature|intérêt)|(te|le) agradecemos|agradecemos (tu|su)|gracias por (tu|su) (candidatura|"
+    r"solicitud|inter[eé]s)|(wij|we) danken (je|u)|bedankt voor (je|jouw|uw) (sollicitatie|interesse)|(ti|la) "
+    r"ringraziamo|grazie per (la tua|il tuo|la sua|il suo) (candidatura|interesse)|agradecemos (a sua|o seu|sua|seu|a "
+    r"tua|o teu|pel[oa])|obrigad[oa] (por|pela|pelo)|"
+    r"konto (wurde )?(erfolgreich )?(erstellt|angelegt|aktiviert)|registrierung (war )?(erfolgreich|abgeschlossen)|"
+    r"willkommen (bei|im|in) (der |dem |unserem )?(\w+ )?(karriere|talent|bewerber)|compte (a été )?(bien )?(créé|"
+    r"activé)|inscription (réussie|confirmée|terminée|validée)|bienvenue (sur|dans|chez) (\w+ )?(espace candidat|"
+    r"carrières?|talent)|cuenta (ha sido )?(creada|activada)|registro (completado|exitoso|completo|realizado)|"
+    r"bienvenid[oa] (a|al) (\w+ )?(portal|talento|empleo)|account (is )?(aangemaakt|geactiveerd)|registratie "
+    r"(is )?(voltooid|gelukt|geslaagd)|welkom (bij|in) (\w+ )?(talent|carrière|kandida)|account (è stato )?(creato|"
+    r"attivato)|registrazione (completata|riuscita|avvenuta)|benvenut[oa] (in|nel|su) (\w+ )?(talent|carriere|portale)|"
+    r"conta (foi )?(criada|ativada)|(registo|cadastro) (conclu[ií]do|efetuado|realizado)|bem-vind[oa] (ao|à) (\w+ )?"
+    r"(portal|talent|carreiras)|talent ?pool|vivier de talents|bolsa de talento|banco de talentos)", re.I)
 CODE_TEXT = re.compile(r"(one[- ]time pass(code|word)|verification code|security code|kod weryfikacyjny|"
-                       r"\botp\b|confirm your email|verify your email|activate your account)", re.I)
+                       r"\botp\b|confirm your email|verify your email|activate your account|"
+                       # German, French, Spanish, Dutch, Italian, Portuguese
+                       r"bestätigungscode|verifizierungscode|sicherheitscode|einmal(passwort|code|kennwort)|"
+                       r"e-?mail(-adresse)? (zu )?bestätigen|bestätigen sie ihre e-?mail|konto aktivieren|"
+                       r"aktivieren sie ihr konto|code de (vérification|confirmation|sécurité)|mot de passe "
+                       r"(à usage unique|temporaire)|confirme[zr]? (votre|ton) (adresse|e-?mail)|v[ée]rifiez votre "
+                       r"(adresse|e-?mail)|activez votre compte|c[oó]digo de (verificaci[oó]n|seguridad|confirmaci[oó]n|"
+                       r"verifica[cç][aã]o|seguran[cç]a|confirma[cç][aã]o)|confirma (tu|su) (correo|email|direcci[oó]n)|"
+                       r"activa (tu|su) cuenta|verificatiecode|bevestigingscode|beveiligingscode|eenmalige (code|"
+                       r"wachtwoord)|bevestig (je|jouw|uw) (e-?mail|emailadres)|activeer (je|uw) account|"
+                       r"codice di (verifica|sicurezza|conferma)|password monouso|conferma (il tuo|il suo) (indirizzo|"
+                       r"e-?mail)|attiva (il tuo|il suo) account|confirme (o seu|seu|o teu|teu) (e-?mail|endere[cç]o)|"
+                       r"ative (a sua|sua) conta)", re.I)
 SECURITY_TEXT = re.compile(r"(security alert|new sign-in|sign-in attempt|password (was )?(changed|reset)|"
-                           r"suspicious|2-step|recovery (email|phone))", re.I)
+                           r"suspicious|2-step|recovery (email|phone)|"
+                           # German, French, Spanish, Dutch, Italian, Portuguese
+                           r"sicherheitswarnung|sicherheitshinweis|neue anmeldung|anmeldeversuch|passwort (wurde )?"
+                           r"(geändert|zurückgesetzt)|passwort zurücksetzen|verdächtig|alerte de sécurité|nouvelle "
+                           r"connexion|tentative de connexion|mot de passe (a été )?(modifié|réinitialisé)|"
+                           r"réinitialis\w* (de |votre )?(votre )?mot de passe|activité suspecte|alerta de seguridad|"
+                           r"nuevo inicio de sesi[oó]n|intento de inicio de sesi[oó]n|contraseña (ha sido )?(cambiada|"
+                           r"restablecida|modificada)|restablecer (tu |su )?contraseña|actividad sospechosa|"
+                           r"beveiligingsmelding|nieuwe aanmelding|aanmeldpoging|wachtwoord (is )?(gewijzigd|gereset|"
+                           r"opnieuw ingesteld)|verdachte activiteit|avviso di sicurezza|nuovo accesso|tentativo di "
+                           r"accesso|password (è stata )?(modificata|reimpostata|cambiata)|attività sospetta|"
+                           r"alerta de seguran[cç]a|novo (login|acesso)|tentativa de (login|acesso)|senha (foi )?"
+                           r"(alterada|redefinida)|redefinir (a |sua )?senha|atividade suspeita|"
+                           r"bestätigung in zwei schritten|validation en deux étapes|verificaci[oó]n en dos pasos|"
+                           r"verificatie in twee stappen|verifica in due passaggi|verifica[cç][aã]o em duas etapas)",
+                           re.I)
 
 
 def classify(row: dict, today: date | None = None) -> tuple[str, str]:
