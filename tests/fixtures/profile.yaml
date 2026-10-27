@@ -1,0 +1,99 @@
+# Fictional profile for tests. Not a real person.
+personal:
+  full_name: "Alex Example"
+  email: "jobs.example@gmail.com"
+  phone: "+48 500 600 700"
+  city: "Warsaw"
+  country: "Poland"
+  address:
+    street: "ul. Przykładowa"
+    house_number: "12"
+    apartment: "3"
+    postal_code: "00-001"
+    city: "Warszawa"
+    region: "Mazowieckie"
+  linkedin: "https://linkedin.com/in/alex-example"
+  github: "https://github.com/alex-example"
+  portfolio: ""
+  cv_file: "tests/fixtures/cv.pdf"
+  cv_variants:
+    data-analyst: "tests/fixtures/cv-data.pdf"
+
+work_authorization:
+  citizenship: "Ukrainian"
+  can_work_in: ["Poland"]
+  needs_sponsorship: false
+  statement: "I have a work permit with full access to the labour market."
+
+education:
+  - university: "Example University of Technology"
+    former_name: "Example College"
+    city: "Warsaw"
+    degree: "Bachelor of Science"
+    major: "Information Systems"
+    start: "2022-10"
+    expected_graduation: "2026-06"
+    status: "in progress"
+    year_of_study: 3
+    gpa: "3.6"
+    gpa_scale: "4.0"
+    coursework: ["Databases", "Operating Systems"]
+
+experience:
+  - title: "IT Support Volunteer (part-time)"
+    company: "Example Foundation"
+    city: "Warsaw, Poland"
+    start: "2024-07"
+    end: "2024-09"
+    bullets:
+      - "Set up and maintained 20 office laptops"
+      - "Answered helpdesk tickets"
+
+languages:
+  english: "C1"
+  ukrainian: "native"
+  polish: "B1"
+
+skills:
+  - {name: Python, level: strong, years: 3}
+  - {name: SQL, level: working, years: 2}
+  - {name: Docker, level: working, years: 1}
+  - {name: Linux, level: working, years: 2}
+  - {name: Git, level: working, years: 3}
+  - {name: React, level: basic, years: 1}
+
+projects:
+  - name: "Inventory API"
+    stack: ["Python", "FastAPI", "PostgreSQL"]
+    summary: "REST API for a student club's equipment."
+    link: "https://github.com/alex-example/inventory"
+
+certifications: []
+
+availability:
+  start_date: "immediately"
+  hours_per_week: 40
+  notice_period: "none"
+  contract_types: ["employment contract", "B2B"]
+
+search:
+  country: "Poland"
+  country_code: "PL"
+  country_names: ["poland", "polska"]
+  city: "Warsaw"
+  city_names: ["warsaw", "warszawa"]
+  other_cities: ["krak", "wrocław", "gdańsk", "poznań"]
+  relocate: false
+  remote: "region"
+  languages: ["english", "ukrainian"]
+  max_years: 3
+  roles: ["software engineer", "backend", "data", "devops"]
+  levels: ["internship", "graduate", "junior"]
+  tech_only: true
+  exclude_titles: []
+  keywords: ["intern", "junior", "graduate"]
+  sources: []
+  currency: "PLN"
+  salary_monthly: 6500
+  job_email: "jobs.example@gmail.com"
+  password_service: "jobhunt-default"

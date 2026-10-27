@@ -1,0 +1,96 @@
+# Your profile. /setup copies this to profile/profile.yaml (never committed) and fills it from your CV and your
+# answers. Everything Claude writes into an application comes from here, from the answer bank, or from you.
+# Edit it any time; run `uv run jobhunt doctor` afterwards to check it.
+
+personal:
+  full_name: ""                 # "Alex Example"
+  first_name: ""                # only if your given name has several words: "Mary Ann"
+  last_name: ""
+  email: ""                     # the inbox you use for job applications (a separate Gmail is best)
+  phone: ""                     # with country code: "+49 151 2345 6789"
+  city: ""                      # where you live
+  country: ""
+  address:                      # some application forms require it
+    street: ""
+    house_number: ""
+    apartment: ""
+    postal_code: ""
+    city: ""
+    region: ""                  # state / province / voivodeship
+  linkedin: ""                  # https://www.linkedin.com/in/<you>
+  github: ""
+  portfolio: ""
+  cv_file: "profile/cv.pdf"     # your main CV (PDF)
+  cv_variants: {}               # optional extra CVs for some role types: {data-analyst: "profile/cv-data.pdf"}
+
+work_authorization:
+  citizenship: ""               # "Brazilian"
+  can_work_in: []               # countries where you may work without sponsorship: ["Germany"]
+  needs_sponsorship: false      # do you need a visa / work permit sponsored by the employer?
+  statement: ""                 # one sentence forms can use: "I hold a permit that allows me to work full time."
+
+education:
+  - university: ""
+    former_name: ""             # if the school was renamed (application forms may list the old name)
+    city: ""
+    degree: ""                  # "Bachelor of Arts"
+    degree_level: ""            # only if forms should list another level than the degree says: Bachelor | Master | PhD
+    major: ""                   # "Economics"
+    start: ""                   # "2023-09" (year AND month: forms ask for both)
+    expected_graduation: ""     # "2026-07" (or the date you graduated)
+    status: ""                  # in progress | completed
+    year_of_study: null         # 3 (only while studying)
+    gpa: ""                     # "3.6"
+    gpa_scale: ""               # "4.0"
+    coursework: []
+
+experience:                     # newest first; volunteering and part-time count
+  - title: ""
+    company: ""
+    city: ""
+    start: ""                   # "2024-07"
+    end: ""                     # "2024-09" or "present"
+    bullets: []
+
+languages:                      # CEFR level (A1-C2) or "native"
+  english: ""
+
+skills: []                     # [{name: "Excel", level: strong, years: 2}] ; level: basic | working | strong
+
+projects:
+  - name: ""
+    stack: []
+    summary: ""
+    link: ""
+
+certifications: []
+
+availability:
+  start_date: "immediately"     # or a date / notice period
+  hours_per_week: 40            # many internships accept 20-32 h for students
+  notice_period: ""
+  contract_types: []            # e.g. ["employment contract", "B2B", "internship agreement"]
+
+# Where and how you search. The filters, job sources and every command read this section.
+search:
+  country: ""                   # "Germany"
+  country_code: ""              # ISO code: "PL", "DE", "NL"...
+  country_names: []             # spellings seen in job locations: ["germany", "deutschland"]
+  city: ""                      # the one city where on-site / hybrid jobs are fine: "Munich"
+  city_names: []                # ["munich", "münchen"]
+  other_cities: []              # other cities in your country: jobs there count only if remote. ["berlin", "hamburg", ...]
+  relocate: false               # true = on-site anywhere in the country is fine
+  remote: "country"             # country | region (also remote open to your whole region) | worldwide
+  region_names: []              # with remote "region": how job ads name your region: ["europe", "emea", "eu"]
+  languages: ["english"]        # languages you can WORK in; jobs requiring any other language are dropped
+  max_years: 2                  # drop jobs that require more years of experience than this
+  roles: []                     # the roles YOU want, most important first: ["data analyst", "marketing assistant"]
+  levels: []                    # any of: internship, working student, graduate, junior, mid
+  tech_only: false              # true = IT roles only: drops sales/HR/legal/finance titles, adds IT-only job boards
+  exclude_titles: []            # title words you never want: ["sales", "call center"]
+  keywords: []                  # optional search words tried first; empty = words for your levels
+  sources: []                   # empty = LinkedIn + company career sites + the job boards known for your country
+  currency: ""                  # "EUR", "USD"
+  salary_monthly: null          # your expected gross monthly salary: only typed into forms, never used to filter
+  job_email: ""                 # same as personal.email unless you use another inbox for job mail
+  password_service: "jobhunt-default"   # OS keychain entry with your default password for job-site accounts

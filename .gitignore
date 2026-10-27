@@ -1,0 +1,16 @@
+# Python / tools
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+
+# Your personal data never leaves your machine
+profile/*
+!profile/profile.example.yaml
+data/
+reports/
+
+# Claude Code: personal settings and local browser state
+.claude/settings.local.json
+.playwright-mcp/

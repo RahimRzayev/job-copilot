@@ -1,0 +1,22 @@
+# Your company watchlist: employers whose own career sites are checked on every scrape (source "company_boards"),
+# read through their public job APIs. It starts empty: add the companies YOU want to work for, or ask Claude
+# ("add <company> to my watchlist"): it finds the career site's system and slug and checks the entry loads.
+# Without a watchlist, LinkedIn and your country's job boards still cover your search.
+#
+# Format: one {name, ats, slug} entry per company.
+# ats: greenhouse | lever | lever_eu | ashby | smartrecruiters | workday | recruitee | workable (slug = board slug)
+# | sf_rmk (SuccessFactors career site HTML, slug = "host[/path]|location")
+# | sf_csb (SuccessFactors Career Site Builder JSON, slug = "host|location|locale")
+# | phenom (slug = "host|locale path") | oracle_hcm (slug = "host|siteNumber") | eightfold (slug = "host|domain")
+# | capgemini (slug = country code, e.g. de-de) | amazon | microsoft | google (slug = country).
+# workday slug = tenant/wdN/site (from https://<tenant>.<wdN>.myworkdayjobs.com/<site>).
+# An empty location / country means the configured one (settings country); boards are always searched for the
+# configured country and city, and rows from other countries are dropped.
+# Some career-site systems can't be read by script (Avature, iCIMS, TalentBrew, custom sites): add those by hand
+# when you apply.
+#
+# Examples (made-up companies):
+#   - {name: "Acme", ats: greenhouse, slug: acme}
+#   - {name: "Globex", ats: workday, slug: "globex/wd3/External"}
+#   - {name: "Initech", ats: smartrecruiters, slug: Initech}
+companies: []

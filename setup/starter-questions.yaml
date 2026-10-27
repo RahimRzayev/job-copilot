@@ -1,0 +1,95 @@
+# Questions application forms ask again and again. /setup asks you each one once and saves your answer to the
+# answer bank (`uv run jobhunt qa save`), so /apply never has to ask. Later, every new question a form asks is saved
+# the same way the first time you answer it.
+#
+# Contact details, education, experience, skills and links are NOT here: they come from profile/profile.yaml.
+# {country}, {city} and {currency} are filled in from the `search:` section of your profile.
+#
+# type: text | yesno | number | choice    options: suggestions shown during setup (you can always type your own)
+# Skip any question you prefer not to answer now; /apply will ask it when a form needs it.
+
+groups:
+  - name: Salary
+    questions:
+      - {q: "Expected salary for an internship ({currency} gross per month)?", type: number, tags: [salary]}
+      - {q: "Expected salary for a junior position ({currency} gross per month)?", type: number, tags: [salary]}
+      - {q: "What is your desired annual salary (gross per year)?", type: text, tags: [salary],
+         hint: "Usually 12 x your monthly figure. Include the currency."}
+      - {q: "Expected hourly rate ({currency} gross per hour) for hourly or freelance contracts?", type: number, tags: [salary]}
+      - {q: "Expected salary when a form only accepts another currency than {currency}, e.g. EUR or USD (gross per month)?", type: text, tags: [salary]}
+      - {q: "Rule for salary questions on any other role", type: text, tags: [salary, rule],
+         hint: "e.g. 'my junior figure, or the posting's minimum if a range is given'"}
+
+  - name: Availability
+    questions:
+      - {q: "What is your earliest start date?", type: text, tags: [availability], options: ["Immediately", "In 2 weeks", "In 1 month"]}
+      - {q: "What is your notice period?", type: text, tags: [availability], options: ["None", "2 weeks", "1 month", "3 months"]}
+      - {q: "How many hours per week are you available to work?", type: number, tags: [availability], options: ["40", "32", "20"]}
+      - {q: "What length of internship are you available for?", type: choice, tags: [availability], options: ["3 months", "6 months", "12 months", "Any"]}
+      - {q: "Are you available for shift work, including weekends and public holidays?", type: yesno, tags: [availability, shifts]}
+      - {q: "Are you available for a periodic on-call rotation?", type: yesno, tags: [availability, on-call]}
+      - {q: "Are you willing to travel for work (business trips)?", type: yesno, tags: [availability, travel]}
+
+  - name: Work authorization
+    questions:
+      - {q: "Are you legally authorized to work in {country}?", type: yesno, tags: [work-auth]}
+      - {q: "Will you now or in the future require visa sponsorship or a work permit?", type: yesno, tags: [work-auth]}
+      - {q: "Which document entitles you to work in {country}? (citizenship, residence card, visa, student status...)", type: text, tags: [work-auth]}
+      - {q: "Is your right to work permanent or a temporary permit? If temporary, when does it expire?", type: text, tags: [work-auth]}
+      - {q: "In what countries do you have the unrestricted right to work?", type: text, tags: [work-auth]}
+      - {q: "What is your citizenship?", type: text, tags: [personal, work-auth]}
+      - {q: "Can you provide verification of your identity and right to work upon hire?", type: yesno, tags: [legal]}
+
+  - name: Location and work model
+    questions:
+      - {q: "Are you willing to relocate?", type: text, tags: [location], options: ["No", "Yes, within {country}", "Yes, anywhere"]}
+      - {q: "Are you willing to work on-site in {city}?", type: yesno, tags: [location]}
+      - {q: "Are you open to a hybrid work model? How many office days per week are fine?", type: text, tags: [work-model],
+         options: ["Any number of days", "Up to 3 days", "Fully remote only"]}
+      - {q: "Are you willing and able to work in the office 5 days a week?", type: yesno, tags: [work-model]}
+      - {q: "Do you live within commuting distance of {city}?", type: yesno, tags: [location]}
+
+  - name: Contract
+    questions:
+      - {q: "Which contract types do you accept (permanent, fixed-term, contractor / freelance, internship agreement, other types used in {country})?", type: text, tags: [contract]}
+      - {q: "Are you registered as self-employed / own a business for contractor work?", type: choice, tags: [contract, contractor],
+         options: ["Yes", "No, but I can register", "No"]}
+
+  - name: Background checks
+    questions:
+      - {q: "Are you at least 18 years of age?", type: yesno, tags: [legal]}
+      - {q: "What is your date of birth?", type: text, tags: [personal], hint: "Only typed into forms that require it."}
+      - {q: "Do you have a driving licence?", type: yesno, tags: [personal]}
+      - {q: "Do you have a non-compete, non-solicitation or other post-employment restriction?", type: yesno, tags: [legal]}
+      - {q: "Do you have family members or relatives working at the company you apply to? (default answer)", type: yesno, tags: [general]}
+      - {q: "Have you held a position with a government, regulatory or intergovernmental organization in the last 5 years?", type: yesno, tags: [disclosure]}
+      - {q: "Do you hold executive or board positions in any business, or provide services to another business?", type: yesno, tags: [disclosure]}
+      - {q: "Do you hold a security clearance? If yes, which level?", type: text, tags: [legal], options: ["No"]}
+
+  - name: Diversity (optional, "Prefer not to say" is always fine)
+    questions:
+      - {q: "What is your gender?", type: choice, tags: [diversity], options: ["Male", "Female", "Non-binary", "Prefer not to say"]}
+      - {q: "What are your pronouns?", type: choice, tags: [diversity], options: ["he/him", "she/her", "they/them", "Prefer not to say"]}
+      - {q: "Do you have a disability?", type: choice, tags: [diversity], options: ["No", "Yes", "Prefer not to say"]}
+      - {q: "Are you a veteran?", type: choice, tags: [diversity], options: ["No", "Yes", "Prefer not to say"]}
+      - {q: "What is your race / ethnicity?", type: choice, tags: [diversity], options: ["Prefer not to say"]}
+
+  - name: Consents
+    questions:
+      - {q: "Would you like to be considered for other positions you may be qualified for?", type: yesno, tags: [consent]}
+      - {q: "Do you agree to your data being kept for future recruitment processes / a talent pool?", type: yesno, tags: [consent]}
+      - {q: "Do you consent to AI-based screening or AI interview summaries in the recruitment process?", type: yesno, tags: [consent]}
+      - {q: "Optional marketing consent (career news, ads from partners)?", type: yesno, tags: [consent], options: ["No"]}
+      - {q: "Which methods may recruiters use to contact you? (email, phone, SMS, WhatsApp)", type: text, tags: [contact]}
+
+  - name: About you
+    questions:
+      - {q: "How did you hear about this position? (default rule)", type: text, tags: [source],
+         hint: "e.g. 'the job board I found it on; LinkedIn when found on LinkedIn'"}
+      - {q: "Tell us about yourself / why are you interested in this field? (3-5 sentences)", type: text, tags: [about]}
+      - {q: "What's the most impactful thing you've built? What was your specific contribution?", type: text, tags: [projects]}
+      - {q: "How do you use AI tools in your work or studies? Give examples.", type: text, tags: [ai, skill]}
+      - {q: "What is your <language> level on a Beginner / Intermediate / Advanced / Fluent scale?", type: choice, tags: [language],
+         options: ["Fluent", "Advanced", "Intermediate", "Beginner"],
+         hint: "Ask once per language in settings `languages` (and per profile language), replacing <language>."}
+      - {q: "Are you currently a student? If yes, full-time or part-time, and do you keep student status for the whole internship?", type: text, tags: [education]}
