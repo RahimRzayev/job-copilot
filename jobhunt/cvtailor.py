@@ -7,6 +7,7 @@ same converter (Microsoft Word, LibreOffice or docx2pdf), checks the page count 
 data/inbox/cvs/<job_id>/<CV file name>. Anything that fails a check writes nothing.
 """
 
+import copy
 import importlib.util
 import platform
 import re
@@ -62,7 +63,14 @@ FAMILIES = (
      "crm", "mailchimp", "braze", "social media", "tiktok", "instagram", "copywriting", "wordpress", "shopify"),
     ("design", "canva", "photoshop", "illustrator", "indesign", "figma", "premiere pro", "after effects"),
     ("office", "excel", "powerpoint", "google sheets", "jira", "sap"),
+    ("ai", "claude", "claude code", "chatgpt", "gemini", "llm", "ai agents", "mcp", "prompt engineering", "copilot",
+     "langchain"),
 )
+# Families that get a Skills line of their own when the CV has none naming a relative: most CVs have no AI line, so
+# confirmed AI tools could not be placed anywhere. The new line copies the last Skills line's formatting and appears
+# only on that job's copy (the page-count check still applies).
+NEW_LINES = {"ai": "AI tools"}
+NEW = "new:"  # section key prefix of a line that apply_skills adds
 
 # Terms prescore.ALIASES does not know yet (it has no Java, C#, etc.), and the tools of non-IT roles.
 EXTRA_TERMS = {
@@ -71,6 +79,8 @@ EXTRA_TERMS = {
     "php": [r"\bphp\b"], "ruby": [r"\bruby\b"], "azure": [r"\bazure\b"], "aws": [r"\baws\b", r"amazon web services"],
     "gcp": [r"\bgcp\b", r"google cloud"], "kubernetes": [r"kubernetes", r"\bk8s\b"], "terraform": [r"terraform"],
     "power bi": [r"power ?bi"], "tableau": [r"tableau"], "excel": [r"\bexcel\b"], "pandas": [r"pandas"],
+    "claude": [r"\bclaude\b"], "chatgpt": [r"chatgpt"], "ai agents": [r"\bai agents?\b", r"\bagentic\b"],
+    "mcp": [r"\bmcp\b", r"model context protocol"],
     "hadoop": [r"hadoop"], "spark": [r"\bspark\b", r"pyspark"], "databricks": [r"databricks"],
     "seo": [r"\bseo\b"], "sem": [r"\bsem\b"], "google ads": [r"google ads", r"adwords"],
     "meta ads": [r"meta ads", r"facebook ads", r"meta business"], "google analytics": [r"google analytics", r"\bga4\b"],
@@ -196,6 +206,14 @@ def guess_section(skill: str, sections: dict[str, dict]) -> str | None:
     return best
 
 
+def new_line_section(skill: str, sections: dict[str, dict]) -> str | None:
+    """'new:<label>' for a skill whose family gets its own line (NEW_LINES); None without a Skills section."""
+    if not sections:
+        return None
+    label = next((NEW_LINES[f[0]] for f in FAMILIES if skill in f and f[0] in NEW_LINES), None)
+    return f"{NEW}{label}" if label else None
+
+
 def cv_skills(cv: str = "main", doc=None) -> set[str]:
     """Skills already on the CV: the profile's skill list plus the tech terms the Word original names."""
     profile = formfill.load_profile()
@@ -229,7 +247,7 @@ def plan(conn, job: dict, cv: str = "main") -> dict:
         elif term in facts and facts[term]["status"] == "yes":
             section = facts[term]["section_key"]
             if section not in sections:
-                section = guess_section(term, sections)
+                section = guess_section(term, sections) or new_line_section(term, sections)
             item = {"skill": term, "display": facts[term]["display"], "level": facts[term]["level"], "section": section}
             (buckets["known_add"] if section else buckets["no_bullet"]).append(item)
         elif term in facts:
@@ -267,13 +285,42 @@ def _add_to_bullet(paragraph, items: list[str], mode: str) -> None:
         raise ValueError(f"unknown mode {mode}")
 
 
+def _new_line_text(section: str, items: list[str]) -> str:
+    return f"{section.removeprefix(NEW)}: {', '.join(items)}"
+
+
+def _insert_line_after(paragraph, label: str, items: str) -> None:
+    """A copy of `paragraph` (style, bullet, run formatting) with the new line's text, placed right after it. A line
+    with a label run ("Cloud: " bold + "Docker, Linux") keeps that split; otherwise the first run holds all text."""
+    new = copy.deepcopy(paragraph._p)
+    from docx.oxml.ns import qn
+    runs = [r for r in new.findall(qn("w:r")) if r.find(qn("w:t")) is not None and (r.find(qn("w:t")).text or "").strip()]
+    if not runs:
+        raise ValueError(f"line {paragraph.text[:30]!r} has no text run to copy")
+    for r in new.findall(qn("w:r")):
+        if r is not runs[0] and r is not runs[-1]:
+            new.remove(r)
+    if len(runs) > 1:
+        runs[0].find(qn("w:t")).text = f"{label}: "
+        runs[0].find(qn("w:t")).set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+        runs[-1].find(qn("w:t")).text = items
+    else:
+        runs[0].find(qn("w:t")).text = f"{label}: {items}"
+    paragraph._p.addnext(new)
+
+
 def apply_skills(doc, additions: list[dict], sections: dict[str, dict] | None = None) -> dict[str, list[str]]:
-    """Insert each addition into its Skills line. Returns {section: [display names added]}."""
+    """Insert each addition into its Skills line (or a new line, see NEW_LINES). Returns {section: [names added]}."""
     sections = layout(doc) if sections is None else sections
     grouped: dict[str, list[str]] = {}
     for item in additions:
         grouped.setdefault(item["section"], []).append(item["display"])
-    for section, items in grouped.items():
+    # Existing lines first: inserting a paragraph shifts the indexes layout() recorded.
+    for section, items in sorted(grouped.items(), key=lambda kv: kv[0].startswith(NEW)):
+        if section.startswith(NEW):
+            last = doc.paragraphs[max(spec["index"] for spec in sections.values())]
+            _insert_line_after(last, section.removeprefix(NEW), ", ".join(items))
+            continue
         if section not in sections:
             raise ValueError(f"no Skills line {section!r} on this CV; have {sorted(sections)}")
         spec = sections[section]
@@ -449,6 +496,9 @@ def _build_in(work: Path, result: dict, additions: list[dict], job: dict, cv: st
     placed = apply_skills(doc, additions)
     after = [p.text for p in doc.paragraphs]
     added = [item["display"] for item in additions]
+    for section, items in placed.items():  # added lines hold only their label and the added skills
+        if section.startswith(NEW):
+            after.remove(_new_line_text(section, items))
     _check_only_additions(before, after, added)
     doc.save(tailored_docx)
 

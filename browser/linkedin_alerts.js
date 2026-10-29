@@ -25,7 +25,7 @@ async () => {
   const stats = { emails: rows.length, cards: 0, errors: [] };
   for (const row of rows) {
     // '“python”: Company - Title and more' (daily digest) or '<Name>: your job alert for Intern in <City>… has been created'
-    const keyword = (row.subject.match(/^[“"]([^”"]+)[”"]/) || row.subject.match(/job alert for (.+?) in /i) || [])[1] || '';
+    let keyword = (row.subject.match(/^[“"]([^”"]+)[”"]/) || row.subject.match(/job alert for (.+?) in /i) || [])[1] || '';
     const parsed = Date.parse(row.date.replace(/ /g, ' '));
     const sent = isNaN(parsed) ? new Date().toISOString() : new Date(parsed).toISOString();
     let html;
@@ -33,8 +33,13 @@ async () => {
       html = await (await fetch(`${base}?ik=${ik}&view=pt&search=all&th=${row.thread}`, { credentials: 'include' })).text();
     } catch (e) { stats.errors.push(`${row.thread}: ${e}`); continue; }
     // "See all jobs": /comm/jobs/search?… in older emails, /comm/jobs/search-results/?… in newer ones.
-    for (const sm of html.matchAll(/href="(https:\/\/www\.linkedin\.com\/comm\/jobs\/search(?:-results)?\/?\?[^"]+)"/g)) {
-      const url = sm[1].replace(/&amp;/g, '&');
+    const links = [...html.matchAll(/href="(https:\/\/www\.linkedin\.com\/comm\/jobs\/search(?:-results)?\/?\?[^"]+)"/g)]
+      .map(sm => sm[1].replace(/&amp;/g, '&'));
+    // A subject without a quoted keyword ("<Title> at <Company>"): take the alert's keyword from its link instead.
+    if (!keyword && links.length) {
+      try { keyword = (new URL(links[0]).searchParams.get('keywords') || '').trim(); } catch (e) { /* keep '' */ }
+    }
+    for (const url of links) {
       const key = url.replace(/&(lipi|midToken|midSig|trk|trkEmail|eid|otpToken|refId|originToLandingJobPostings)=[^&]*/g, '');
       if (!searches.has(key)) searches.set(key, { url, alert: keyword });
     }

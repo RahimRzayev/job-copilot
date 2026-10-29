@@ -88,3 +88,52 @@ def test_resolve_skips_jobs_tried_recently(conn, monkeypatch):
     assert len(calls) == 1
     jid = conn.execute("SELECT id FROM jobs").fetchone()[0]
     assert resolve.resolve(conn, ids=[jid])["tried"] == 1  # explicit ids always run
+
+
+def test_role_only_mail_from_an_unapplied_company_or_for_a_one_word_title_flips_nothing(conn):
+    """An ATS rejection for "Intern" sent under another employer's name (one we never applied to through the tool)
+    must not flip our own "Intern" or "Business Analyst" application at a different company."""
+    intern = applied_job(conn, "Intern", "Initech")
+    analyst = applied_job(conn, "Business Analyst", "Hooli")
+    conn.execute("INSERT INTO jobs (dedupe_key, source, title, company, url, scraped_at, status) "
+                 "VALUES ('pmo', 'linkedin', 'PMO Coordinator', 'Vandelay Industries', 'https://x', '2026-10-01', 'scored')")
+    conn.commit()
+    mail(conn, "Vandelay Industries", "vandelay@myworkday.com", "Your application", "",
+         "Dear Alex, Many thanks for your application for the position of Business Analyst. After careful "
+         "consideration, we are sorry to advise you that we will not be progressing with your application.")
+    mail(conn, "System System", "system@successfactors.eu", "Your Application", "",
+         "Dear Alex, Thank you for your interest in the Intern position. After careful consideration, we have decided "
+         "to move forward with other candidates for this role.")
+    assert mailcheck.sync_job_statuses(conn) == []
+    assert status(conn, intern) == status(conn, analyst) == "applied"
+
+
+def test_invite_for_a_longer_title_skips_the_generic_title_at_the_same_company(conn):
+    generic = applied_job(conn, "Software Engineer", "Globex")
+    specific = applied_job(conn, "Software Engineer Intern AI/ML (2027)", "Globex")
+    mail(conn, "Globex Hiring Team", "no-reply@ashbyhq.com",
+         "Globex | Assessment Instructions | Software Engineer Intern AI/ML (2027)", "",
+         "Hi Alex, Thank you for applying for Software Engineer Intern AI/ML (2027)! As a next step, we would like to "
+         "invite you to complete our online Technical Assessment.")
+    changed = {c["id"]: c["to"] for c in mailcheck.sync_job_statuses(conn)}
+    assert changed == {specific: "interview"} and status(conn, generic) == "applied"
+
+
+def test_invite_with_two_words_before_interview():
+    assert history.classify("Screening invitation", "",
+                            "Hi, thank you for sending your CV and the task! Now, I'd like to invite you to a short "
+                            "initial interview. The meeting will take 10-15 minutes.") == "interview"
+
+
+def test_history_match_summary_lists_only_open_items(conn):
+    for i, st in ((1, "new"), (2, "scored"), (3, "shortlisted")):
+        conn.execute("INSERT INTO jobs (id, dedupe_key, source, title, company, url, scraped_at, status) "
+                     "VALUES (?,?,?,?,?,?,?,?)", (i, f"k{i}", "x", "Shopify Developer", "Initech", "u", "2026-10-01", st))
+    result = {"checked": 3, "with_history": 3, "applied_synced": [],
+              "applied_review": [{"id": 2, "mails": ["x"]}, {"id": 3, "mails": ["y"]}], "flagged": [
+                  {"id": 1, "warn": True, "note": "test pending"}, {"id": 2, "warn": True, "note": "test pending"},
+                  {"id": 3, "warn": False, "note": "applied earlier"}]}
+    out = history.match_summary(conn, result)
+    assert out["warn_total"] == 2 and [f["id"] for f in out["warn_new_or_shortlisted"]] == [1]
+    assert out["applied_review_total"] == 2 and [r["id"] for r in out["applied_review_new_or_shortlisted"]] == [3]
+    assert "flagged" not in out

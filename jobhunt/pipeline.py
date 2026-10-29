@@ -46,6 +46,10 @@ def _log(msg: str) -> None:
     print(msg, file=sys.stderr, flush=True)
 
 
+def _minutes_since(started: float) -> float:
+    return round((time.monotonic() - started) / 60, 1)
+
+
 def _companies() -> list[dict]:
     if not COMPANIES_FILE.exists():
         return []
@@ -62,6 +66,7 @@ def fetch_all(http: Http, sources: tuple[str, ...], hours: int, report: Report, 
         "linkedin": lambda: linkedin.fetch(http, hours=max(hours, 24), mode=mode),
     }
     for name in sources:
+        started = time.monotonic()
         try:
             if name == "company_boards":
                 batch, errs = ats_boards.fetch(http, _companies())
@@ -74,7 +79,10 @@ def fetch_all(http: Http, sources: tuple[str, ...], hours: int, report: Report, 
         report.fetched[name] = len(batch)
         if name == "linkedin" and linkedin.STATS:
             report.fetched["linkedin searches"] = [dict(s) for s in linkedin.STATS]
-        _log(f"{name}: {len(batch)} listings")
+        # Per-step minutes: a long scan's total alone does not show which source was slow.
+        minutes = _minutes_since(started)
+        report.fetched.setdefault("minutes by step", {})[name] = minutes
+        _log(f"{name}: {len(batch)} listings ({minutes} min)")
         jobs.extend(batch)
     return jobs
 
@@ -115,6 +123,15 @@ def store(conn: sqlite3.Connection, job: Job, status: str, reason: str | None = 
     return cur.rowcount == 1
 
 
+def _carry_employer(conn: sqlite3.Connection, keep_id: int, job: Job) -> None:
+    """A duplicate dropped here may be the copy with the employer's link (a company-board job vs the LinkedIn copy
+    already stored): give the kept row that link if it has none."""
+    link = job.employer_url or (job.url if job.source in prefilter.COMPANY_BOARDS else None)
+    if link:
+        conn.execute("UPDATE jobs SET employer_url = ? WHERE id = ? AND COALESCE(employer_url, '') = ''",
+                     (link, keep_id))
+
+
 # The first scan of a newly added watchlist company takes every opening it has (open postings stay up for weeks);
 # after that only the usual window.
 NEW_BOARD_HOURS = 365 * 24
@@ -132,7 +149,8 @@ def process(conn: sqlite3.Connection, http: Http | None, jobs: list[Job], hours:
             max_years: int, report: Report, enrich_limit: int = 300, mode: str = "full",
             new_companies: frozenset[str] = frozenset()) -> None:
     rows = conn.execute("SELECT id, dedupe_key, source, source_id, company, title, status FROM jobs").fetchall()
-    known = {r["dedupe_key"] for r in rows}
+    known_ids_by_key = {r["dedupe_key"]: r["id"] for r in rows}
+    known = set(known_ids_by_key)
     # dedupe_key changed format over time, so also match the board's own id (boards re-list under a new key).
     known_ids = {(r["source"], r["source_id"]) for r in rows if r["source_id"]}
     # Kept roles (not filtered) by company + title: a second city/board copy of a role we already have is a duplicate.
@@ -158,6 +176,8 @@ def process(conn: sqlite3.Connection, http: Http | None, jobs: list[Job], hours:
         key = job.dedupe_key
         if key in known or key in seen or (job.source_id and (job.source, job.source_id) in known_ids):
             report.known += 1
+            if key in known_ids_by_key:  # e.g. the employer-board copy of a role first stored from LinkedIn
+                _carry_employer(conn, known_ids_by_key[key], job)
             continue
         seen.add(key)
         reason = prefilter.check_listing(job, window(job), mode=mode)
@@ -187,6 +207,8 @@ def process(conn: sqlite3.Connection, http: Http | None, jobs: list[Job], hours:
             twin = next((i for c, i in kept_titles.get(title_key(job.title), []) if company_variant(c, job.company)), None)
             if twin is not None:
                 reason = f"duplicate of #{twin}" if twin else "duplicate (same batch)"
+        if reason and reason.startswith("duplicate of #"):
+            _carry_employer(conn, int(reason.split("#")[1]), job)
         if reason:
             drop(job, reason)
         elif store(conn, job, "new"):
@@ -208,12 +230,18 @@ def scrape(conn: sqlite3.Connection, sources: tuple[str, ...] = ALL_SOURCES, hou
     max_years = max_years if max_years is not None else prefilter.MAX_YEARS[mode]
     new = new_companies(conn) if "company_boards" in sources else frozenset()
     jobs = fetch_all(http, sources, hours, report, mode)
+    step = time.monotonic()
     process(conn, http, jobs, hours, max_years, report, enrich_limit=enrich_limit, mode=mode, new_companies=new)
+    report.fetched.setdefault("minutes by step", {})["filter + enrich"] = _minutes_since(step)
     if new:
         report.fetched["new watchlist companies (all open jobs)"] = sorted(new)
+    step = time.monotonic()
     report.fetched["prescored"] = prescore.run(conn)["scored"]
+    report.fetched["minutes by step"]["prescore"] = _minutes_since(step)
     report.fetched["429 waits"] = http.throttled
     report.fetched["429 wait minutes"] = round(http.throttle_wait / 60, 1)
+    if http.blocked:  # hosts that sent a Retry-After of hours: their requests failed at once instead of waiting
+        report.fetched["blocked hosts"] = {host: f"Retry-After {secs} s" for host, secs in http.blocked.items()}
     report.fetched["minutes"] = round((time.monotonic() - started) / 60, 1)
     return report
 
@@ -385,8 +413,10 @@ STATUS_RANK = {"applied": 0, "interview": 0, "offer": 0, "rejected": 0, "manual"
 
 def dedupe_existing(conn: sqlite3.Connection, dry_run: bool = False) -> dict:
     """Collapse duplicates already stored: same board id, or same company + title. Keeps the most advanced row
-    (applied > shortlisted > scored > new, then the oldest) and marks the others filtered 'duplicate of #id'."""
-    rows = conn.execute("SELECT id, source, source_id, company, title, status FROM jobs WHERE status != 'filtered'").fetchall()
+    (applied > shortlisted > scored > new, then the oldest) and marks the others filtered 'duplicate of #id'.
+    The kept row inherits an employer link it lacks, so a merge never loses the company-board copy's form link."""
+    rows = conn.execute("SELECT id, source, source_id, company, title, status, employer_url FROM jobs "
+                        "WHERE status != 'filtered'").fetchall()
     groups: dict[str, list] = {}
     parent: dict[int, int] = {}
 
@@ -417,6 +447,7 @@ def dedupe_existing(conn: sqlite3.Connection, dry_run: bool = False) -> dict:
                         parent[b] = a
     by_root: dict[int, list] = {}
     status = {r["id"]: r["status"] for r in rows}
+    employer = {r["id"]: r["employer_url"] for r in rows}
     for r in rows:
         by_root.setdefault(find(r["id"]), []).append(r["id"])
     merged = []
@@ -431,5 +462,9 @@ def dedupe_existing(conn: sqlite3.Connection, dry_run: bool = False) -> dict:
             if not dry_run:
                 conn.execute("UPDATE jobs SET status = 'filtered', filter_reason = ? WHERE id = ?",
                              (f"duplicate of #{keep}", i))
+        link = next((employer[i] for i in sorted(ids) if employer[i]), None)
+        if link and not employer[keep] and not dry_run:
+            conn.execute("UPDATE jobs SET employer_url = ? WHERE id = ?", (link, keep))
+            employer[keep] = link
     conn.commit()
     return {"groups": sum(1 for v in by_root.values() if len(v) > 1), "merged": merged}

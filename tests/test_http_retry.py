@@ -8,11 +8,23 @@ def test_retry_after_is_capped(monkeypatch):
     """A 429 with a huge Retry-After must not put a run to sleep for hours."""
     slept = []
     monkeypatch.setattr(base.time, "sleep", lambda s: slept.append(s))
-    calls = iter([httpx.Response(429, headers={"Retry-After": "86400"}), httpx.Response(200, text="ok")])
+    calls = iter([httpx.Response(429, headers={"Retry-After": "120"}), httpx.Response(200, text="ok")])
     http = base.Http(delay=0)
     http.client = httpx.Client(transport=httpx.MockTransport(lambda request: next(calls)))
     assert http.get("https://example.com").text == "ok"
     assert max(slept) <= 60
+
+
+def test_retry_after_of_hours_blocks_the_host_without_waiting(monkeypatch):
+    """A Retry-After of many hours is a block, not a pause: the host is skipped for the run instead of waited out."""
+    slept = []
+    monkeypatch.setattr(base.time, "sleep", lambda s: slept.append(s))
+    http = base.Http(delay=0)
+    http.client = httpx.Client(transport=httpx.MockTransport(
+        lambda request: httpx.Response(429, headers={"Retry-After": "86400"})))
+    with pytest.raises(base.HostBlocked):
+        http.get("https://example.com")
+    assert http.blocked == {"example.com": 86400} and not slept
 
 
 def test_read_timeouts_are_retried(monkeypatch):

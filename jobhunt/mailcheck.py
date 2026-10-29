@@ -272,8 +272,15 @@ def sync_job_statuses(conn: sqlite3.Connection) -> list[dict]:
         for h in history.for_company(conn, job["company"], job["title"]):
             if h["date"] < since:
                 continue
-            if not h["same_role"] and any(history._same_role(t, h["role_text"]) for t in others):
-                continue  # about another application at this company
+            # About another application at this company. A longer title that the mail names word for word wins over
+            # ours too: an invite for "Software Engineer Intern AI/ML" must not flip an older "Software Engineer"
+            # application to interview.
+            rivals = [t for t in others if history._same_role(t, h["role_text"])]
+            mine = len(history._role_tokens(job["title"]))
+            if rivals and (not h["same_role"] or any(
+                    len(history._role_tokens(t)) > mine and history._same_role(t, h["role_text"], fuzzy=False)
+                    for t in rivals)):
+                continue
             new = {"offer": "offer", "interview": "interview", "test": "interview"}.get(h["kind"])
             # A rejection that names no role ("Regarding your application") can only mean the one open application
             # at that company; with several open ones it stays a note for Claude to resolve. A mail naming the title
@@ -308,15 +315,24 @@ def _sync_by_role_only(conn: sqlite3.Connection, todo: list, active: list) -> li
     applied_cores = {history.company_core(r["company"]) for r in conn.execute(
         "SELECT DISTINCT j.company FROM jobs j JOIN applications a ON a.job_id = j.id")}
     applied_cores.discard("")
+    # Senders named after any company in the jobs table, applied to or not: one employer's "position of Intern"
+    # rejection (sent through an ATS under that employer's name) flipped another company's "Intern" application.
+    known_cores = {history.company_core(r["company"]) for r in conn.execute("SELECT DISTINCT company FROM jobs")}
+    known_cores.discard("")
     for row in rows:
         domain = (row["sender_email"] or "").split("@")[-1]
         if not any(p in domain for p in history.PLATFORM_DOMAINS):
             continue
+        sender_core = history.company_core(row["sender_name"] or "")
+        if sender_core in known_cores:
+            continue  # the sender names a company: the normal company match handles it
         role_text = f"{row['subject']} {row['snippet']} {(row['body'] or '')[:600]}"
         hay = f"{history._haystack(row)} {history.fold(role_text)} "
         if any(f" {core} " in hay for core in applied_cores):
             continue  # names a company: the normal company match handles it (or it is about another company)
-        matches = [j for j in active if history._same_role(j["title"], role_text)]
+        # A one-word title ("Intern", "Developer") names no particular job without its company.
+        matches = [j for j in active
+                   if len(history._role_tokens(j["title"])) >= 2 and history._same_role(j["title"], role_text)]
         if len(matches) != 1 or matches[0] not in todo or row["msg_date"] < (matches[0]["applied_at"] or "")[:10]:
             continue
         job = matches[0]

@@ -512,11 +512,12 @@ CONDITIONAL = re.compile(
     r"a meno che|senza (riscontro|risposta|notizie)|consideri|da ritenersi|"
     r"caso|sem (retorno|resposta|contato))\b", re.I)
 # With a full body the bare word "interview" is too weak: confirmations describe the process ("a recruiter will
-# contact you to schedule an interview"). An invitation needs invitation wording.
+# contact you to schedule an interview"). An invitation needs invitation wording, with up to two words before
+# "interview" ("invite you to a short initial interview").
 INTERVIEW_INVITE = re.compile(
-    r"(invite you (to|for) (an? |the |our )?(\w+ )?(interview|call|meeting|chat|conversation)|invitation (to|for) (an? )?"
-    r"(\w+ )?interview|would (like|love) to (invite|schedule|meet|talk|speak|have a (call|chat))|"
-    r"schedule (a|an|your) (\w+ )?(interview|call|chat|meeting)|book (a|your) (slot|time)|calendly|"
+    r"(invite you (to|for) (an? |the |our )?(\w+ ){0,2}(interview|call|meeting|chat|conversation)|invitation (to|for) (an? )?"
+    r"(\w+ ){0,2}interview|would (like|love) to (invite|schedule|meet|talk|speak|have a (call|chat))|"
+    r"schedule (a|an|your) (\w+ ){0,2}(interview|call|chat|meeting)|book (a|your) (slot|time)|calendly|"
     r"interview (is |has been )?(scheduled|confirmed)|zaproszenie na rozmow|zapraszamy (cię |pana )?na rozmow|"
     r"choose (a|your) (slot|time))", re.I)
 INTERVIEW_INVITE_OTHER = re.compile(wordstart(INTERVIEW_INVITE_INTL)[1:], re.I)
@@ -863,6 +864,23 @@ def annotate(conn: sqlite3.Connection, statuses: tuple[str, ...] = ("new", "scor
     conn.commit()
     return {"checked": len(rows), "with_history": len(flagged), "flagged": flagged,
             "applied_synced": applied["synced"], "applied_review": applied["review"]}
+
+
+def match_summary(conn: sqlite3.Connection, result: dict) -> dict:
+    """`history match` output without the full list (well over a thousand flagged rows once the history is large):
+    counts, plus the strong warnings and applied-review items on jobs still to be scored or applied."""
+    warn = [f for f in result["flagged"] if f["warn"]]
+    review = result["applied_review"]
+    ids = [f["id"] for f in warn] + [r["id"] for r in review]
+    status = {r[0]: r[1] for r in conn.execute(
+        f"SELECT id, status FROM jobs WHERE id IN ({','.join('?' * len(ids))})", ids)} if ids else {}
+
+    def is_open(item: dict) -> bool:
+        return status.get(item["id"]) in ("new", "shortlisted")
+
+    return {"checked": result["checked"], "with_history": result["with_history"], "warn_total": len(warn),
+            "warn_new_or_shortlisted": [f for f in warn if is_open(f)], "applied_synced": result["applied_synced"],
+            "applied_review_total": len(review), "applied_review_new_or_shortlisted": [r for r in review if is_open(r)]}
 
 
 def counts(conn: sqlite3.Connection) -> dict:

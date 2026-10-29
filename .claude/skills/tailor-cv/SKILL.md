@@ -40,6 +40,8 @@ Never ask a skill that already has a fact (`uv run jobhunt cv fact-list`). Never
 For each shortlisted id: `uv run jobhunt cv build <id>`. Read the result:
 - `built: true` → PDF written to `data/inbox/cvs/<id>/` under the same file name as the base CV; note `added` and
   `placed`.
+  A `placed` key starting with `new:` (e.g. `new:AI tools`) is a Skills line added after the last one, because the CV
+  had no line for that skill family; it is only on that job's copy.
 - `reason: no confirmed skill with a bullet on this CV` → no tailored copy; the base CV is used. Not an error.
 - `blocked: ...` → no file written; report the reason verbatim and use the base CV for that job.
 

@@ -171,8 +171,8 @@ def expand_searches(http: Http, searches: list[dict], days: int,
             continue
         for start in range(0, max_results, 10):
             try:
-                batch = linkedin._parse_cards(http.get(linkedin.SEARCH, params={
-                    **params, "f_TPR": f"r{days * 86400}", "sortBy": "DD", "start": start}).text)
+                batch = linkedin._parse_cards(linkedin.search_page(http, {
+                    **params, "f_TPR": f"r{days * 86400}", "sortBy": "DD", "start": start}))
             except Exception as e:
                 errors.append(f"search {params.get('keywords')}: {e}")
                 break
@@ -257,6 +257,8 @@ def run(conn: sqlite3.Connection, path: Path, days: int | None = None, max_years
     prescore.run(conn)
     report.fetched["429 waits"] = http.throttled
     report.fetched["429 wait minutes"] = round(http.throttle_wait / 60, 1)
+    if http.blocked:  # hosts that sent a Retry-After of hours: their requests failed at once instead of waiting
+        report.fetched["blocked hosts"] = {host: f"Retry-After {secs} s" for host, secs in http.blocked.items()}
     report.fetched["minutes"] = round((time.monotonic() - started) / 60, 1)
 
     # Where every alert job ended up (new today, revived, already seen by the daily scan, or filtered and why).

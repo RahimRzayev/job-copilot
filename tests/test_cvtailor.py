@@ -226,3 +226,34 @@ def test_marketing_skills_go_to_the_marketing_line(tmp_path):
     sections = cvtailor.layout(d)
     assert cvtailor.guess_section("hubspot", sections) == "marketing"
     assert cvtailor.guess_section("photoshop", sections) == "design"
+
+
+def test_ai_tools_get_a_new_skills_line_when_no_line_names_them(conn, tmp_path):
+    """Most CVs have no AI line: confirmed AI tools go into a new "AI tools:" line after the last Skills line."""
+    import docx
+    cvtailor.save_fact(conn, "claude", "yes", display="Claude Code", level="working")
+    cvtailor.save_fact(conn, "java", "yes", display="Java", level="basic")
+    result = cvtailor.plan(conn, job("Java and Claude for internal automation."))
+    assert {k["skill"]: k["section"] for k in result["known_add"]} == {"claude": "new:AI tools", "java": "languages"}
+    doc = docx.Document(tmp_path / "cv-source" / "cv.docx")
+    before = [p.text for p in doc.paragraphs]
+    placed = cvtailor.apply_skills(doc, result["known_add"])
+    after = [p.text for p in doc.paragraphs]
+    i = after.index("SQL & Databases (MySQL, MongoDB)")
+    assert after[i + 1] == "AI tools: Claude Code" and after[i + 2] == "EXPERIENCE"
+    assert doc.paragraphs[i + 1].style.name == doc.paragraphs[i].style.name
+    rest = list(after)
+    rest.remove(cvtailor._new_line_text("new:AI tools", placed["new:AI tools"]))
+    cvtailor._check_only_additions(before, rest, ["Claude Code", "Java"])
+
+
+def test_new_line_keeps_the_label_run_split():
+    import docx
+    doc = docx.Document()
+    doc.add_paragraph("Skills")
+    line = doc.add_paragraph()
+    line.add_run("Tools: ").bold = True
+    line.add_run("Git, Jira")
+    cvtailor.apply_skills(doc, [{"skill": "mcp", "display": "MCP", "section": "new:AI tools"}])
+    assert [r.text for r in doc.paragraphs[2].runs] == ["AI tools: ", "MCP"]
+    assert doc.paragraphs[2].runs[0].bold

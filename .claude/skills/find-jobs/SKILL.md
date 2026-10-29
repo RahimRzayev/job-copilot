@@ -38,7 +38,9 @@ filters at the source). The narrow search is still available with `--mode narrow
    lost; the output starts with `window_hours`. Takes ~15-40 minutes (a long window after a missed day can take 2 h+)
    — run it with `run_in_background` and do step 2 meanwhile (but don't write the DB concurrently: ingest after it
    ends). Detail pages are fetched for the 300 most promising survivors (`--enrich-limit`); everything gets a
-   pre-score. Report `429 waits` / `429 wait minutes` if they are large.
+   pre-score. Report `429 waits` / `429 wait minutes` if they are large, and `blocked hosts` (a site that answered 429
+   with a Retry-After of hours gets no more requests this run). `minutes by step` shows the time per source, filter +
+   enrich and prescore.
 2. **Pracuj.pl** — only when the `pracuj` source is enabled for your country (Poland). Cloudflare → browser:
    `uv run jobhunt browser-script pracuj-full` writes `data/inbox/pracuj-full-fn.js` (window since the last Pracuj
    ingest). Run that file's content with `browser_evaluate` (`function`): on an `it.pracuj.pl` tab →
@@ -71,7 +73,7 @@ If a source errors, report it and continue; never stop the run for one source.
    Gmail (settings `job_email`; URL-encode the query after `https://mail.google.com/mail/u/0/#search/`, and use
    `/u/<job_email>/` if it is not the browser's first account), run `browser/gmail_rows.js`
    (`filename: data/inbox/gmail-new.json`), `uv run jobhunt history import data/inbox/gmail-new.json`,
-   then `uv run jobhunt history match`. Full rebuild: `history query` without `--days`, then page through `/p2`,
+   then `uv run jobhunt history match` (counts + only the warnings on new/shortlisted jobs; `--full` lists all). Full rebuild: `history query` without `--days`, then page through `/p2`,
    `/p3`… (one file per page, import each) until a page has fewer than 50 rows.
 
 ## 2. Score (two stages)

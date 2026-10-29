@@ -93,7 +93,8 @@ def cmd_history(args: argparse.Namespace) -> None:
     if args.history_cmd == "import":
         _print(history.import_rows(conn, history.load_rows(args.file)))
     elif args.history_cmd == "match":
-        _print(history.annotate(conn, tuple(args.status.split(","))))
+        result = history.annotate(conn, tuple(args.status.split(",")))
+        _print(result if args.full else history.match_summary(conn, result))
     elif args.history_cmd == "show":
         _print(history.for_company(conn, args.company, args.title or ""))
     elif args.history_cmd == "query":
@@ -403,6 +404,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("file")
     p = h_sub.add_parser("match", help="annotate jobs with prior applications/tests/interviews")
     p.add_argument("--status", default="new,scored,shortlisted")
+    p.add_argument("--full", action="store_true", help="print every flagged job, not the summary")
     p = h_sub.add_parser("show", help="history for one company")
     p.add_argument("company")
     p.add_argument("--title")

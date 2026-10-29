@@ -13,6 +13,8 @@ dreamworkhq "View original posting"), who saves the result with `jobhunt set-emp
 
 import re
 import sqlite3
+import sys
+import time
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -68,10 +70,11 @@ def _probe(http: Http, company: str, title: str) -> tuple[str, str] | None:
                               for j in http.get(f"https://api.lever.co/v0/postings/{slug}", params={"mode": "json"}).json()],
             "ashby": lambda: [(j["title"], j.get("location", ""), j["jobUrl"])
                               for j in http.get(f"https://api.ashbyhq.com/posting-api/job-board/{slug}").json()["jobs"]],
-            "workable": lambda: [(j["title"], (j.get("location") or {}).get("country", ""),
-                                  f"https://apply.workable.com/{slug}/j/{j['shortcode']}/")
-                                 for j in http.post(f"https://apply.workable.com/api/v3/accounts/{slug}/jobs",
-                                                    json={"query": title}).json().get("results", [])],
+            # The widget feed, not the api/v3 search: v3 can block an IP for hours with 429 while the widget feed
+            # keeps answering.
+            "workable": lambda: [(j["title"], j.get("country", ""), f"https://apply.workable.com/{slug}/j/{j['shortcode']}/")
+                                 for j in http.get(f"https://apply.workable.com/api/v1/widget/accounts/{slug}").json()
+                                 .get("jobs", [])],
             "recruitee": lambda: [(j["title"], j.get("location", ""), j["careers_url"])
                                   for j in http.get(f"https://{slug}.recruitee.com/api/offers/").json()["offers"]],
             "smartrecruiters": lambda: [(j["name"], (j.get("location") or {}).get("city", ""),
@@ -127,18 +130,29 @@ def resolve(conn: sqlite3.Connection, ids: list[int] | None = None, min_score: i
                             "(resolve_tried_at IS NULL OR resolve_tried_at < ?)", (min_score, cutoff)).fetchall()
     http = Http(delay=0.3, timeout=12)
     out = {"tried": len(rows), "resolved": [], "unresolved": []}
-    for r in rows:
+    for n, r in enumerate(rows, 1):
         if r["employer_url"] and not ids:
             continue
+        start, refused = time.monotonic(), http.refused
         hit = _watchlist(http, r["company"], r["title"]) or _probe(http, r["company"], r["title"])
-        conn.execute("UPDATE jobs SET resolve_tried_at = ? WHERE id = ?", (now(), r["id"]))
+        # A probe refused by a blocked host proves nothing: leave the job unstamped so the next run tries it again
+        # instead of waiting RETRY_DAYS.
+        missed = not hit and http.refused > refused
+        if not missed:
+            conn.execute("UPDATE jobs SET resolve_tried_at = ? WHERE id = ?", (now(), r["id"]))
         if hit:
             url, ats = hit
             conn.execute("UPDATE jobs SET employer_url = ? WHERE id = ?", (url, r["id"]))
             out["resolved"].append({"id": r["id"], "company": r["company"], "ats": ats, "url": url})
         else:
-            out["unresolved"].append({"id": r["id"], "company": r["company"], "title": r["title"]})
+            out["unresolved"].append({"id": r["id"], "company": r["company"], "title": r["title"],
+                                      **({"retry_next_run": True} if missed else {})})
+        # One stderr line per job: a slow run otherwise prints nothing for hours.
+        print(f"resolve {n}/{len(rows)} #{r['id']} {r['company'][:40]}: {hit[1] if hit else 'no link'}"
+              f" ({time.monotonic() - start:.0f} s)", file=sys.stderr, flush=True)
     conn.commit()
+    if http.blocked:
+        out["blocked_hosts"] = {host: f"429, Retry-After {secs} s" for host, secs in http.blocked.items()}
     return out
 
 

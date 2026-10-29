@@ -8,6 +8,7 @@ import sys
 import time
 from urllib.parse import unquote
 
+import httpx
 from selectolax.parser import HTMLParser
 
 from .. import settings
@@ -43,6 +44,9 @@ LOCAL_SLICES = {"PL": ("programista", "analityk")}  # tech words by settings.cou
 # hours with 429 waits, but a budget silently skips keywords, so it is off by default.
 SLICE_BUDGET_MINUTES: float | None = None
 STATS: list[dict] = []  # per base search of the last fetch(): jobs found, whether keyword slices ran
+# Extra pauses (seconds) for a page LinkedIn still answers with 429 after Http's own four waits (~2.5 min): without
+# them such a page ended the whole LinkedIn source with 0 jobs, and in the alert import it cut that search short.
+PAGE_PAUSES = (300, 600)
 
 TECH_KEYWORDS = [
     "software engineer", "developer", "python", "frontend", "backend", "full stack",
@@ -171,12 +175,25 @@ def fetch(http: Http, location: str | None = None, hours: int = 24, pages: int =
     return list(jobs.values())
 
 
+def search_page(http: Http, params: dict) -> str:
+    """One page (10 cards) of guest search results; a lasting 429 gets the longer PAGE_PAUSES before it fails."""
+    for pause in PAGE_PAUSES:
+        try:
+            return http.get(SEARCH, params=params).text
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code != 429:
+                raise
+        _progress(f"429 after every retry, pausing {pause // 60} min before this page again")
+        time.sleep(pause)
+    return http.get(SEARCH, params=params).text
+
+
 def _search(http: Http, params: dict) -> dict[str, Job]:
     """Every card of one guest search, 10 per request, until two empty pages or LinkedIn's ~1000-result end."""
     found: dict[str, Job] = {}
     empty = 0
     for start in range(0, 1000, 10):
-        batch = _parse_cards(http.get(SEARCH, params={**params, "start": start}).text)
+        batch = _parse_cards(search_page(http, {**params, "start": start}))
         for j in batch:
             found.setdefault(j.source_id, j)
         empty = empty + 1 if not batch else 0

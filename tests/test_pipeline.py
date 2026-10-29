@@ -173,3 +173,50 @@ def test_new_watchlist_company_brings_all_its_open_jobs(tmp_path, monkeypatch):
     monkeypatch.setattr(pipeline, "_companies", lambda: [{"name": "Acme", "ats": "greenhouse", "slug": "acme"},
                                                          {"name": "Globex", "ats": "workday", "slug": "g/wd3/x"}])
     assert pipeline.new_companies(conn) == {"Globex"}
+
+
+def test_fetch_all_reports_minutes_per_source(monkeypatch):
+    monkeypatch.setattr(pipeline.justjoin, "fetch", lambda http, mode, hours: [])
+    monkeypatch.setattr(pipeline.nofluffjobs, "fetch", lambda http, mode, hours: [])
+    report = pipeline.Report()
+    pipeline.fetch_all(None, ("justjoin", "nofluffjobs"), 24, report)
+    assert report.fetched["minutes by step"] == {"justjoin": 0.0, "nofluffjobs": 0.0}
+
+
+def _li(**kw) -> Job:
+    return _job(**{"source": "linkedin", "source_id": "li1", "title": "Junior Data Analyst", "company": "Northwind",
+                   "url": "https://www.linkedin.com/jobs/view/1", **kw})
+
+
+def test_dedupe_existing_moves_employer_link_to_kept_row(tmp_path):
+    conn = connect(tmp_path / "t.db")
+    pipeline.store(conn, _li(), "scored")
+    pipeline.store(conn, _li(source="workday", source_id="wd1", url="https://northwind.wd3.myworkdayjobs.com/x",
+                             location="Kraków"), "new")
+    conn.commit()
+    out = pipeline.dedupe_existing(conn)
+    assert [m["duplicate_of"] for m in out["merged"]] == [1]
+    assert conn.execute("SELECT employer_url FROM jobs WHERE id = 1").fetchone()[0] == "https://northwind.wd3.myworkdayjobs.com/x"
+
+
+def test_scrape_time_duplicate_gives_kept_row_its_link(tmp_path):
+    """Same role from the employer board: as an exact repeat (same dedupe key) or another place's copy."""
+    link = "https://northwind.wd3.myworkdayjobs.com/x"
+    for location, remote in (("Warszawa", False), ("Poland", True)):
+        conn = connect(tmp_path / f"{location}.db")
+        pipeline.store(conn, _li(), "scored")
+        conn.commit()
+        report = pipeline.Report()
+        pipeline.process(conn, None, [_li(source="workday", source_id="wd1", url=link, location=location, remote=remote)],
+                         24, 3, report)
+        assert report.added == 0
+        assert conn.execute("SELECT employer_url FROM jobs WHERE id = 1").fetchone()[0] == link, location
+
+
+def test_kept_row_link_is_never_overwritten(tmp_path):
+    conn = connect(tmp_path / "t.db")
+    pipeline.store(conn, _li(employer_url="https://northwind.wd3.myworkdayjobs.com/original"), "scored")
+    conn.commit()
+    pipeline.process(conn, None, [_li(source="workday", source_id="wd1", url="https://northwind.wd3.myworkdayjobs.com/other")],
+                     24, 3, pipeline.Report())
+    assert conn.execute("SELECT employer_url FROM jobs WHERE id = 1").fetchone()[0].endswith("/original")
