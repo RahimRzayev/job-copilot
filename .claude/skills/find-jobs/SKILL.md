@@ -40,7 +40,8 @@ filters at the source). The narrow search is still available with `--mode narrow
    ends). Detail pages are fetched for the 300 most promising survivors (`--enrich-limit`); everything gets a
    pre-score. Report `429 waits` / `429 wait minutes` if they are large, and `blocked hosts` (a site that answered 429
    with a Retry-After of hours gets no more requests this run). `minutes by step` shows the time per source, filter +
-   enrich and prescore.
+   enrich and prescore. LinkedIn runs in its own thread beside the other sources, so the per-source minutes overlap;
+   `all sources (LinkedIn in parallel)` is the wall time of the fetch.
 2. **Pracuj.pl** — only when the `pracuj` source is enabled for your country (Poland). Cloudflare → browser:
    `uv run jobhunt browser-script pracuj-full` writes `data/inbox/pracuj-full-fn.js` (window since the last Pracuj
    ingest). Run that file's content with `browser_evaluate` (`function`): on an `it.pracuj.pl` tab →

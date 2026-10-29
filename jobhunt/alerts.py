@@ -33,6 +33,11 @@ LAST_READ_KEY = "alerts_last_read"
 OVERLAP_SECONDS = 3600
 # A job can be posted a day or two before the alert that mentions it.
 EXTRA_HOURS = 48
+# The see-all searches cover the time since the last import plus this much, not whole days: a 27 h gap used to search
+# 48 h (~40% of the pages for jobs the previous import had already read). The previous import's searches ran up to its
+# import time and the window is measured from the read time before it, so this only has to cover jobs that show up in
+# LinkedIn's search a while after their listing time (the old day rounding guaranteed 1 h, OVERLAP_SECONDS).
+SEARCH_OVERLAP_SECONDS = 3 * 3600
 
 
 def gmail_url(search: str = "") -> str:
@@ -148,10 +153,18 @@ def wide_area(params: dict) -> str | None:
     return None
 
 
+def search_window(days: int, since: float | None, now: float | None = None) -> str:
+    """f_TPR value: everything listed after `since` (Unix time), measured when the search starts, so a long import
+    does not shift its start; whole days only when no `since` is known (explicit --days, first import)."""
+    if since is None:
+        return f"r{days * 86400}"
+    return f"r{max(3600, math.ceil((time.time() if now is None else now) - since))}"
+
+
 def expand_searches(http: Http, searches: list[dict], days: int,
-                    max_results: int = MAX_SEARCH_RESULTS) -> tuple[list[Job], list[str]]:
+                    max_results: int = MAX_SEARCH_RESULTS, since: float | None = None) -> tuple[list[Job], list[str]]:
     """Run each alert's full search ("See all jobs") on LinkedIn's public guest endpoint — the email itself lists only
-    the top ~6 matches."""
+    the top ~6 matches. Window: jobs listed after `since` (see search_window), else the last `days` days."""
     jobs: dict[str, Job] = {}
     errors = []
     seen = set()
@@ -169,10 +182,11 @@ def expand_searches(http: Http, searches: list[dict], days: int,
             # email's own cards still count and go through those rules (prefilter, settings.remote/region_names).
             errors.append(f"see-all skipped ({area}): {params.get('keywords', '')[:60]}")
             continue
+        window = search_window(days, since)
         for start in range(0, max_results, 10):
             try:
                 batch = linkedin._parse_cards(linkedin.search_page(http, {
-                    **params, "f_TPR": f"r{days * 86400}", "sortBy": "DD", "start": start}))
+                    **params, "f_TPR": window, "sortBy": "DD", "start": start}))
             except Exception as e:
                 errors.append(f"search {params.get('keywords')}: {e}")
                 break
@@ -219,15 +233,18 @@ def run(conn: sqlite3.Connection, path: Path, days: int | None = None, max_years
     stats, jobs, searches = load(path)
     # The browser script wrote the file right after reading Gmail: that moment becomes the next run's start.
     read_at = path.stat().st_mtime
+    since = None
     if days is None:
         last = get_meta(conn, LAST_READ_KEY)
         days = window_days(float(last), read_at) if last else 1
+        since = float(last) - SEARCH_OVERLAP_SECONDS if last else None
     hours = days * 24 + EXTRA_HOURS
     max_years = max_years if max_years is not None else prefilter.MAX_YEARS["full"]
     http = Http()
     started = time.monotonic()
     in_email = {j.source_id for j in jobs}
-    more, search_errors = expand_searches(http, searches, days)
+    searched_at = time.time()
+    more, search_errors = expand_searches(http, searches, days, since=since)
     more = [j for j in more if j.source_id not in in_email]
     jobs += more
     revived = _revive(conn, http, jobs, hours, max_years)
@@ -235,6 +252,8 @@ def run(conn: sqlite3.Connection, path: Path, days: int | None = None, max_years
     report.fetched["alert cards"] = len(in_email)
     report.fetched["see-all searches"] = len({tuple(sorted(search_params(s.get("url", "")).items())) for s in searches})
     report.fetched["see-all extra jobs"] = len(more)
+    # Hours the see-all searches covered: since the last import + overlap (whole days with --days or on a first import).
+    report.fetched["see-all window hours"] = round((searched_at - since if since else days * 86400) / 3600, 1)
     report.errors.extend(search_errors)
     # Fetch descriptions here (not in process) so a removed posting (guest page 404) is stored as closed
     # instead of lingering as a "new" job with no description.

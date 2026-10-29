@@ -4,7 +4,9 @@ import json
 import re
 import sqlite3
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -56,34 +58,68 @@ def _companies() -> list[dict]:
     return yaml.safe_load(COMPANIES_FILE.read_text()).get("companies") or []
 
 
+# LinkedIn's guest search is most of a full scan (hours on a long window) and talks only to linkedin.com, so it runs in
+# its own thread beside the other sources: their hosts never overlap, so every host still gets the same requests at
+# the same pace, only the waiting overlaps.
+SIDE_SOURCES = ("linkedin",)
+
+
 def fetch_all(http: Http, sources: tuple[str, ...], hours: int, report: Report, mode: str = "full") -> list[Job]:
-    jobs: list[Job] = []
     plan = {
-        "justjoin": lambda: justjoin.fetch(http, mode=mode, hours=hours),
-        "nofluffjobs": lambda: nofluffjobs.fetch(http, mode=mode, hours=hours),
-        "bulldogjob": lambda: bulldogjob.fetch(http, mode=mode, hours=hours),
-        "englishjobs": lambda: englishjobs.fetch(http, hours=hours, mode=mode),
-        "linkedin": lambda: linkedin.fetch(http, hours=max(hours, 24), mode=mode),
+        "justjoin": lambda h: justjoin.fetch(h, mode=mode, hours=hours),
+        "nofluffjobs": lambda h: nofluffjobs.fetch(h, mode=mode, hours=hours),
+        "bulldogjob": lambda h: bulldogjob.fetch(h, mode=mode, hours=hours),
+        "englishjobs": lambda h: englishjobs.fetch(h, hours=hours, mode=mode),
+        "linkedin": lambda h: linkedin.fetch(h, hours=max(hours, 24), mode=mode),
     }
-    for name in sources:
+
+    def run(name: str, client: Http) -> tuple[list[Job], list[str], float]:
         started = time.monotonic()
+        errors: list[str] = []
         try:
             if name == "company_boards":
-                batch, errs = ats_boards.fetch(http, _companies())
-                report.errors.extend(errs)
+                batch, errs = ats_boards.fetch(client, _companies())
+                errors.extend(errs)
             else:
-                batch = plan[name]()
+                batch = plan[name](client)
         except Exception as e:  # a broken source must not stop the others
-            report.errors.append(f"{name}: {e}")
+            errors.append(f"{name}: {e}")
             batch = []
+        minutes = _minutes_since(started)
+        _log(f"{name}: {len(batch)} listings ({minutes} min)")
+        return batch, errors, minutes
+
+    started = time.monotonic()
+    results: dict[str, tuple[list[Job], list[str], float]] = {}
+    side = [n for n in sources if n in SIDE_SOURCES] if len(sources) > 1 else []
+    forks = {n: http.fork() if http else None for n in side}
+    # Daemon threads, not an executor: Ctrl-C must still end the scan instead of waiting for LinkedIn to finish.
+    threads = [threading.Thread(target=lambda n=n: results.__setitem__(n, run(n, forks[n])), daemon=True)
+               for n in side]
+    for t in threads:
+        t.start()
+    for name in sources:
+        if name not in forks:
+            results[name] = run(name, http)
+    for t in threads:
+        t.join()
+    for fork in forks.values():
+        if fork:
+            http.absorb(fork)  # 429 counts, blocked hosts and LinkedIn's slowed delay (the enrich step uses it)
+    # Jobs, errors and counts in source order, exactly as when the sources ran one after another (dedupe keeps the
+    # first copy of a job it sees).
+    jobs: list[Job] = []
+    for name in sources:
+        batch, errors, minutes = results[name]
+        report.errors.extend(errors)
         report.fetched[name] = len(batch)
         if name == "linkedin" and linkedin.STATS:
             report.fetched["linkedin searches"] = [dict(s) for s in linkedin.STATS]
         # Per-step minutes: a long scan's total alone does not show which source was slow.
-        minutes = _minutes_since(started)
         report.fetched.setdefault("minutes by step", {})[name] = minutes
-        _log(f"{name}: {len(batch)} listings ({minutes} min)")
         jobs.extend(batch)
+    if side:  # the per-source minutes overlap now, so they no longer add up to the scrape time
+        report.fetched["minutes by step"]["all sources (LinkedIn in parallel)"] = _minutes_since(started)
     return jobs
 
 
@@ -145,6 +181,49 @@ def new_companies(conn: sqlite3.Connection) -> frozenset[str]:
     return frozenset(str(c.get("name")) for c in _companies()) - known
 
 
+# Detail pages of different boards are fetched side by side, one thread per host (ENRICH_WORKERS at a time).
+ENRICH_WORKERS = 8
+
+
+def _enrich_host(job: Job) -> str:
+    """The host a job's detail request goes to: one per board, one per Workday tenant."""
+    if job.source == "workday" and ".myworkdayjobs.com/" in (job.employer_url or ""):
+        return job.employer_url.split(".myworkdayjobs.com/")[0]
+    return job.source
+
+
+def enrich_all(http: Http | None, jobs: list[Job], workers: int | None = None) -> list[str | None]:
+    """Fetch the description of every job (ENRICHERS), in place; per job its error message or None.
+    One thread per host, each host's jobs in their given order on a fork of `http`: the same requests at the same
+    per-host pace as one after another, but LinkedIn's detail pages (up to 3 s apart once it sends 429s) no longer
+    hold up the other boards. Only the jobs change here; the caller writes the database."""
+    workers = ENRICH_WORKERS if workers is None else workers
+    errors: list[str | None] = [None] * len(jobs)
+    groups: dict[str, list[int]] = {}
+    for i, job in enumerate(jobs):
+        groups.setdefault(_enrich_host(job), []).append(i)
+
+    def one(indexes: list[int], client: Http | None) -> Http | None:
+        for i in indexes:
+            try:
+                ENRICHERS[jobs[i].source](client, jobs[i])
+            except Exception as e:
+                errors[i] = str(e)
+        return client
+
+    if workers <= 1 or len(groups) <= 1 or http is None:
+        for indexes in groups.values():
+            one(indexes, http)
+        return errors
+    if jobs:
+        _log(f"enrich: {len(jobs)} detail pages from {len(groups)} hosts in parallel")
+    with ThreadPoolExecutor(max_workers=min(workers, len(groups))) as pool:
+        forks = list(pool.map(lambda idx: one(idx, http.fork()), groups.values()))
+    for fork in forks:
+        http.absorb(fork)
+    return errors
+
+
 def process(conn: sqlite3.Connection, http: Http | None, jobs: list[Job], hours: int,
             max_years: int, report: Report, enrich_limit: int = 300, mode: str = "full",
             new_companies: frozenset[str] = frozenset()) -> None:
@@ -189,15 +268,11 @@ def process(conn: sqlite3.Connection, http: Http | None, jobs: list[Job], hours:
     # Detail pages cost one request each (LinkedIn rate-limits), so fetch the most promising first.
     skills = prescore._profile_skills()
     survivors.sort(key=lambda j: prescore.prescore(j.to_dict(), skills)[0], reverse=True)
-    enriched = 0
+    todo = [j for j in survivors if http and ENRICHERS.get(j.source) and not j.description][:enrich_limit]
+    failed = {id(j): e for j, e in zip(todo, enrich_all(http, todo)) if e}
     for job in survivors:
-        enrich = ENRICHERS.get(job.source)
-        if http and enrich and not job.description and enriched < enrich_limit:
-            enriched += 1
-            try:
-                enrich(http, job)
-            except Exception as e:
-                report.errors.append(f"enrich {job.source} {job.source_id}: {e}")
+        if id(job) in failed:
+            report.errors.append(f"enrich {job.source} {job.source_id}: {failed[id(job)]}")
         # Re-run listing checks too: enrichment can fill in the publish date (Bulldogjob).
         reason = prefilter.check_listing(job, window(job), mode=mode) or prefilter.check_details(job, max_years)
         rk = role_key(job.company, job.title)
@@ -215,7 +290,7 @@ def process(conn: sqlite3.Connection, http: Http | None, jobs: list[Job], hours:
             report.added += 1
             kept_roles[rk] = 0
             kept_titles.setdefault(title_key(job.title), []).append((job.company, 0))
-    report.fetched["enriched"] = enriched
+    report.fetched["enriched"] = len(todo)
     conn.commit()
 
 

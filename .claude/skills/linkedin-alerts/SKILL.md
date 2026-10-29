@@ -33,7 +33,8 @@ A number N overrides this with the last N days.
 `uv run jobhunt alerts import data/inbox/linkedin-alerts.json` (add `--days <N>` only if the user gave N; default =
 days since the last import). A successful import records the file's write time as the new `alerts_last_read`.
 - expands every alert's "See all jobs" link (an email shows only ~6 matches) by running the same search
-  (keywords, geoId, workplace/experience filters) on LinkedIn's public guest endpoint for the last N days,
+  (keywords, geoId, workplace/experience filters) on LinkedIn's public guest endpoint for the time since the last import + 3 h (`see-all window hours`; whole N days
+  with `--days`),
 - fetches each new job's description from LinkedIn's public guest page (404 = removed → stored as `closed`),
 - runs the normal prefilter per your settings (languages outside settings `languages`, senior, more than
   `max_years`, non-tech when `tech_only`, `exclude_titles`, on-site outside your city, remote outside settings `remote`),

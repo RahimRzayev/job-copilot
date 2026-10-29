@@ -710,9 +710,16 @@ SENIORITY = {"junior", "senior", "mid", "regular", "lead", "principal", "staff",
              "associate", "head", "chief", "expert"}
 
 
+@lru_cache(maxsize=16384)
+def _role_tuple(text: str, noise: re.Pattern) -> tuple[str, ...]:
+    t = noise.sub(" ", fold(text))
+    return tuple(w for w in t.split() if w not in ROLE_STOP and len(w) > 1)
+
+
 def _role_tokens(text: str) -> list[str]:
-    t = _role_noise().sub(" ", fold(text))
-    return [w for w in t.split() if w not in ROLE_STOP and len(w) > 1]
+    # Cached (per settings, through the noise pattern): `history match` compares every job title with every mail of
+    # its company, the same mail texts again and again for a company with many open jobs.
+    return list(_role_tuple(text, _role_noise()))
 
 
 def _same_role(job_title: str, text: str, fuzzy: bool = True) -> bool:
@@ -755,11 +762,32 @@ def core_role(job_title: str, text: str) -> bool:
     return not (before and before[0] in SENIORITY and before[0] not in core)
 
 
-def for_company(conn: sqlite3.Connection, company: str, title: str = "") -> list[dict]:
-    connect_schema(conn)
+class HistoryIndex:
+    """app_history read once for many for_company calls, plus the mails found per company core. `history match`
+    checks every open job (thousands after a few scans) and re-read + re-folded every mail for each one."""
+
+    def __init__(self, conn: sqlite3.Connection):
+        connect_schema(conn)
+        self.rows = [(row, _haystack(row)) for row in
+                     conn.execute("SELECT * FROM app_history WHERE kind != 'alert' ORDER BY msg_date DESC")]
+        self.by_core: dict[str, list[tuple[sqlite3.Row, str, bool]]] = {}
+
+
+def _company_mails(conn: sqlite3.Connection, company: str,
+                   index: HistoryIndex | None = None) -> list[tuple[sqlite3.Row, str, bool]]:
+    """The mails about `company`, newest first: (row, role text, whether it names a role). Everything here depends on
+    the company core only (brand_word and _brand_hit_ok derive from it), so one result serves every job of a core."""
+    if index is None:
+        connect_schema(conn)
     core = company_core(company)
     if len(core) < 3:
         return []
+    if index is not None and core in index.by_core:
+        return index.by_core[core]
+    if index is None:
+        rows = ((row, None) for row in conn.execute("SELECT * FROM app_history WHERE kind != 'alert' ORDER BY msg_date DESC"))
+    else:
+        rows = index.rows
     brand = brand_word(company)
     names = [re.escape(core)] + ([re.escape(brand)] if brand else [])
     pattern = re.compile(rf"\b({'|'.join(names)})\b")
@@ -767,28 +795,39 @@ def for_company(conn: sqlite3.Connection, company: str, title: str = "") -> list
     # Companies named like an ATS (Workday, Greenhouse, Lever...) appear in every email sent through that ATS;
     # for them only the sender's own domain (e.g. @workday.com) counts.
     platform_named = any(core.replace(" ", "") in p for p in PLATFORM_DOMAINS + ("myworkdayjobs", "workday"))
-    hits = []
-    for row in conn.execute("SELECT * FROM app_history WHERE kind != 'alert' ORDER BY msg_date DESC"):
+    mails = []
+    for row, text in rows:
         if platform_named:
             domain = (row["sender_email"] or "").split("@")[-1]
             if not re.fullmatch(rf"([a-z0-9-]+\.)*{re.escape(core.replace(' ', ''))}\.[a-z.]+", domain) or "myworkday" in domain:
                 continue
             if not pattern.search(f" {fold(row['subject'])} "):
                 continue  # e.g. "Verify your candidate account" sent by workday.com for some other employer
-            text = _haystack(row)
+            text = text or _haystack(row)
         else:
-            text = _haystack(row)
+            text = text or _haystack(row)
             if pattern.search(text) and _other_company_sender(row, core):
                 continue
             if brand and not core_pattern.search(text) and pattern.search(text) and not _brand_hit_ok(row, company, brand, text):
                 continue
         if platform_named or pattern.search(text):
             role_text = f"{row['subject']} {row['snippet']} {(row['body'] or '')[:600]}"
-            same = bool(title) and _same_role(title, role_text)
-            hits.append({"date": row["msg_date"], "kind": row["kind"], "subject": row["subject"], "same_role": same,
-                         "names_other_role": not same and bool(ROLE_MENTION.search(role_text)),
-                         "core_role": not same and bool(title) and core_role(title, role_text),
-                         "role_text": role_text})
+            mails.append((row, role_text, bool(ROLE_MENTION.search(role_text))))
+    if index is not None:
+        index.by_core[core] = mails
+    return mails
+
+
+def for_company(conn: sqlite3.Connection, company: str, title: str = "", index: HistoryIndex | None = None) -> list[dict]:
+    """Mails about this company, each marked with whether it names this job's title. Pass a HistoryIndex when
+    checking many jobs."""
+    hits = []
+    for row, role_text, mention in _company_mails(conn, company, index):
+        same = bool(title) and _same_role(title, role_text)
+        hits.append({"date": row["msg_date"], "kind": row["kind"], "subject": row["subject"], "same_role": same,
+                     "names_other_role": not same and mention,
+                     "core_role": not same and bool(title) and core_role(title, role_text),
+                     "role_text": role_text})
     return hits
 
 
@@ -814,7 +853,8 @@ def _days_before(day: str, days: int) -> str:
     return (datetime.fromisoformat(day) - timedelta(days=days)).date().isoformat()
 
 
-def sync_applied(conn: sqlite3.Connection, statuses: tuple[str, ...] = ("new", "scored", "shortlisted")) -> dict:
+def sync_applied(conn: sqlite3.Connection, statuses: tuple[str, ...] = ("new", "scored", "shortlisted"),
+                 index: HistoryIndex | None = None) -> dict:
     """A job still listed as new/scored/shortlisted whose Gmail history names the same role as an application
     confirmation was applied to (e.g. applied by hand, outside /apply). The job becomes applied, with an application
     row so later rejections sync. Confirmations that name no role are only listed in `review`: with several open jobs
@@ -824,7 +864,7 @@ def sync_applied(conn: sqlite3.Connection, statuses: tuple[str, ...] = ("new", "
                         f"WHERE status IN ({','.join('?' * len(statuses))})", statuses).fetchall()
     synced, review = [], []
     for r in rows:
-        hits = [h for h in for_company(conn, r["company"], r["title"]) if h["kind"] == "applied"]
+        hits = [h for h in for_company(conn, r["company"], r["title"], index) if h["kind"] == "applied"]
         # Exact title only: a fuzzy match would count a "Mid Backend Engineer" posting as the "Junior Backend
         # Engineer" application at the same company.
         same = [h for h in hits if h["same_role"] and _same_role(r["title"], h["role_text"], fuzzy=False)]
@@ -851,13 +891,13 @@ def sync_applied(conn: sqlite3.Connection, statuses: tuple[str, ...] = ("new", "
 
 
 def annotate(conn: sqlite3.Connection, statuses: tuple[str, ...] = ("new", "scored", "shortlisted")) -> dict:
-    connect_schema(conn)
-    applied = sync_applied(conn, statuses)
+    index = HistoryIndex(conn)  # app_history does not change below, only jobs/applications rows
+    applied = sync_applied(conn, statuses, index)
     rows = conn.execute(f"SELECT id, company, title FROM jobs WHERE status IN ({','.join('?' * len(statuses))})",
                         statuses).fetchall()
     flagged = []
     for r in rows:
-        note, strong = summarize(for_company(conn, r["company"], r["title"]))
+        note, strong = summarize(for_company(conn, r["company"], r["title"], index))
         conn.execute("UPDATE jobs SET history_note = ?, history_warn = ? WHERE id = ?", (note or None, int(strong), r["id"]))
         if note:
             flagged.append({"id": r["id"], "company": r["company"], "title": r["title"], "warn": strong, "note": note})

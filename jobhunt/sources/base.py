@@ -37,6 +37,7 @@ class HostBlocked(httpx.HTTPError):
 class Http:
     def __init__(self, delay: float = 0.6, timeout: float = 20.0):
         self.delay = delay  # base gap between two requests to the same host
+        self.timeout = timeout
         # Delay, last request and 429-free streak per host: one Http serves the whole scrape, and a single shared delay
         # let LinkedIn's slowdown slow the ATS boards and the enrich step after it too.
         self._delays: dict[str, float] = {}
@@ -52,6 +53,28 @@ class Http:
             timeout=timeout,
             follow_redirects=True,
         )
+
+    def fork(self) -> "Http":
+        """A client for another thread (httpx.Client is not shared across threads) that starts from this one's
+        per-host state: a host LinkedIn already slowed down stays slow, a blocked host stays blocked."""
+        other = Http(delay=self.delay, timeout=self.timeout)
+        other._delays, other._last, other._ok = dict(self._delays), dict(self._last), dict(self._ok)
+        other.blocked = dict(self.blocked)
+        return other
+
+    def absorb(self, other: "Http") -> None:
+        """Take back a fork's counters and the per-host state of the hosts it used, then close it."""
+        self.throttled += other.throttled
+        self.throttle_wait += other.throttle_wait
+        self.refused += other.refused
+        self.blocked.update(other.blocked)
+        for host, last in other._last.items():
+            if last > self._last.get(host, 0.0):
+                self._last[host] = last
+                if host in other._delays:
+                    self._delays[host] = other._delays[host]
+                    self._ok[host] = other._ok.get(host, 0)
+        other.client.close()
 
     def delay_for(self, host: str) -> float:
         return self._delays.get(host, self.delay)
